@@ -1,0 +1,6 @@
+[submodule "mapadecoletivos-api"]
+	path = mapadecoletivos-api
+	url = git@github.com:coic-e/mapadecoletivos-api.git
+[submodule "mapadecoletivos-app"]
+	path = mapadecoletivos-app
+	url = git@github.com:coic-e/mapadecoletivos-app.git
