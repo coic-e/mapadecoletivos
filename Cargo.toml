@@ -1,0 +1,11 @@
+[workspace]
+members = ["mapadecoletivos-api-rust"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+
+# Shared dependencies across workspace members
+[workspace.dependencies]
+actix-web = "4"
+actix-rt = "2"
