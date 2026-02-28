@@ -4,3 +4,6 @@
 [submodule "mapadecoletivos-app"]
 	path = mapadecoletivos-app
 	url = git@github.com:coic-e/mapadecoletivos-app.git
+[submodule "mapadecoletivos-api-rust"]
+	path = mapadecoletivos-api-rust
+	url = git@github.com:coic-e/mapadecoletivos-api-rust.git
