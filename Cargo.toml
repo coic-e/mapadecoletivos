@@ -1,5 +1,5 @@
 [workspace]
-members = ["mapadecoletivos-api-rust"]
+members = ["api-rust"]
 resolver = "2"
 
 [workspace.package]
