@@ -1,0 +1,136 @@
+#page-map {
+  width: 100vw;
+  height: 100vh;
+  background: linear-gradient(
+    180deg,
+    var(--primary-color) 0%,
+    var(--secondary-color) 100%
+  );
+  position: relative;
+  display: flex;
+}
+
+#page-map aside {
+  width: 495px;
+  padding: 5rem;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+
+  background: url("../../images/discoball.svg") no-repeat center top;
+  background-size: 214px 224px;
+}
+
+#page-map aside h2 {
+  text-transform: uppercase;
+  font-size: 50px;
+  font-weight: 800;
+  line-height: 55px;
+  color: var(--secondary-color);
+
+  text-shadow: -1px 2px 1px #000;
+}
+
+#page-map aside p {
+  line-height: 35px;
+  margin-top: 85px;
+  font-size: 33px;
+  color: var(--text-color);
+
+  text-shadow: -1px 2px 1px #000;
+}
+
+#page-map .leaflet-container {
+  z-index: 5;
+}
+
+#page-map .create-collective {
+  position: absolute;
+
+  right: 40px;
+  bottom: 40px;
+
+  z-index: 10;
+
+  width: 64px;
+  height: 64px;
+  background: var(--primary-color);
+  border-radius: 20px;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  transition: background-color 0.2s;
+}
+
+#page-map .create-collective:hover {
+  background: var(--hover-color);
+}
+
+#page-map .map-popup .leaflet-popup-content-wrapper {
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 20px;
+  box-shadow: none;
+}
+
+#page-map .map-popup .leaflet-popup-content {
+  color: var(--text-color);
+  font-size: 20px;
+  margin: 8px 12px;
+  font-weight: bold;
+
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#page-map .map-popup .leaflet-popup-content a {
+  width: 40px;
+  height: 40px;
+  background: var(--primary-color);
+  box-shadow: 17.2868px 27.6589px 41.4884px rgba(23, 142, 166, 0.16);
+  border-radius: 12px;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#page-map .map-popup .leaflet-popup-tip-container {
+  display: none;
+}
+
+@media(max-width: 1024px){
+  #page-map{
+      flex: 1;
+  }   
+
+  #page-map aside{
+      display: none;
+  }
+
+  #page-map .create-collective{
+      right: 20px;
+      bottom: 20px;
+  }
+}
+
+@media(max-width: 300px){
+  #page-map aside footer{
+      position: absolute;
+      left: 60%;
+      top: 0.3em;
+      line-height: 1em;
+  }
+
+  #page-map aside footer strong{
+      font-size: 0.8em;
+  }
+
+  #page-map aside footer span{
+      font-size: 0.65em;
+  }
+}
