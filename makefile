@@ -1,18 +1,18 @@
 setup:
-	git fetch && git pull origin master
+	git fetch && git pull origin main
 	git submodule update --init --recursive
-	git submodule foreach git checkout origin/master
+	git submodule foreach git checkout origin/main
 	git submodule foreach git checkout origin/develop
 
-master:
-	git fetch && git pull origin master
+main:
+	git fetch && git pull origin main
 	git submodule update --init --recursive
 	git submodule foreach git fetch
-	git submodule foreach git checkout master
-	git submodule foreach git pull origin master
+	git submodule foreach git checkout main
+	git submodule foreach git pull origin main
 
 develop:
-	git fetch && git pull origin master
+	git fetch && git pull origin main
 	git submodule update --init --recursive
 	git submodule foreach git fetch
 	git submodule foreach git checkout develop
