@@ -1,9 +1,0 @@
-[submodule "api"]
-	path = api
-	url = git@github.com:coic-e/api.git
-[submodule "app"]
-	path = app
-	url = git@github.com:coic-e/app.git
-[submodule "api-rust"]
-	path = api-rust
-	url = git@github.com:coic-e/api-rust.git
