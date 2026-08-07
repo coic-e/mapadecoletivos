@@ -30,34 +30,37 @@ High-performance Rust implementation of the Mapadecoletivos API using Actix-web 
 ### Project Structure
 
 ```
+../db-types/                   # Crate: database types
+└── src/
+    ├── schema.rs             # Diesel schema (auto-generated)
+    ├── organization.rs       # Organization entity & validation
+    └── image.rs              # Image entity
+../api-types/                  # Crate: API request/response types
+└── src/
+    ├── organization_view.rs  # JSON transformation for organizations
+    └── image_view.rs         # JSON transformation for images
 src/
 ├── main.rs                    # Application entry point
 ├── lib.rs                     # Library exports for testing
 ├── config.rs                  # Configuration from environment
 ├── db.rs                      # Database connection pool
-├── schema.rs                  # Diesel schema (auto-generated)
 ├── errors/
 │   └── api_error.rs          # Custom error types
-├── models/
-│   ├── collective.rs         # Collective entity & validation
-│   └── image.rs              # Image entity
-├── repositories/
-│   ├── collective_repository.rs  # Database operations for collectives
-│   └── image_repository.rs       # Database operations for images
-├── views/
-│   ├── collective_view.rs    # JSON transformation for collectives
-│   └── image_view.rs         # JSON transformation for images
+├── domains/
+│   └── organizations/
+│       ├── routes.rs         # HTTP request handlers
+│       ├── actions.rs        # Business logic
+│       └── repository.rs     # Database operations
 └── handlers/
-    ├── collective_handler.rs  # HTTP request handlers
     └── upload.rs             # File upload processing
 migrations/
-├── *_create_collectives/     # Database migration for collectives table
+├── *_create_organizations/   # Database migration for organizations table
 └── *_create_images/          # Database migration for images table
 ```
 
 ## Prerequisites
 
-- Rust 1.75+ (install via [rustup](https://rustup.rs/))
+- Rust 1.78+ (install via [rustup](https://rustup.rs/))
 - PostgreSQL 12+ (running locally or via Docker)
 - Diesel CLI: `cargo install diesel_cli --no-default-features --features postgres`
 
@@ -66,7 +69,7 @@ migrations/
 ### 1. Clone and Navigate
 
 ```bash
-cd mapadecoletivos-api-rust
+cd api-rust
 ```
 
 ### 2. Configure Environment
@@ -78,7 +81,7 @@ cp .env.example .env
 Edit `.env` with your configuration:
 
 ```env
-DATABASE_URL=postgresql://docker:mapadecoletivos@localhost:5432/mapadecoletivos
+DATABASE_URL=postgresql://docker:ravemap@localhost:5432/rave_map
 SERVER_HOST=0.0.0.0
 SERVER_PORT=8080
 UPLOAD_DIR=uploads
@@ -89,20 +92,10 @@ RUST_LOG=info
 
 ### 3. Set Up Database
 
-**Option A: Use existing database** from TypeScript API (shared):
+Start PostgreSQL with Docker and run migrations:
 
 ```bash
-# The database should already exist from mapadecoletivos-api
-# Just run migrations
-diesel migration run
-```
-
-**Option B: Start fresh database** with Docker:
-
-```bash
-cd ../mapadecoletivos-api
 docker-compose up -d database  # Starts PostgreSQL
-cd ../mapadecoletivos-api-rust
 diesel setup                   # Creates database and runs migrations
 ```
 
@@ -118,7 +111,7 @@ For production build:
 
 ```bash
 cargo build --release
-./target/release/mapadecoletivos-api-rust
+./target/release/api-rust
 ```
 
 ## API Endpoints
@@ -137,8 +130,8 @@ Returns array of collectives with images. Supports pagination.
   {
     "id": 1,
     "name": "Coletivo Example",
-    "latitude": "-23.55",
-    "longitude": "-46.63",
+    "latitude": -23.55,
+    "longitude": -46.63,
     "type": "Sound System",
     "city": "São Paulo",
     "uf": "SP",
@@ -203,7 +196,7 @@ Returns `OK` status.
 cargo test
 
 # Integration tests (requires database)
-DATABASE_URL=postgresql://docker:mapadecoletivos@localhost:5432/mapadecoletivos cargo test --features integration_tests
+DATABASE_URL=postgresql://docker:ravemap@localhost:5432/rave_map cargo test --features integration_tests
 ```
 
 ### Check Code
@@ -240,7 +233,7 @@ docker-compose up -d
 
 This will:
 - Build Rust API container
-- Connect to shared PostgreSQL database
+- Start PostgreSQL database
 - Expose API on port 8080
 - Mount `./uploads` directory
 
@@ -250,15 +243,6 @@ This will:
 docker build -t mapadecoletivos-rust-api .
 docker run -p 8080:8080 --env-file .env mapadecoletivos-rust-api
 ```
-
-## Coexistence with TypeScript API
-
-Both APIs can run simultaneously:
-
-- **TypeScript API**: Port 3333 (http://localhost:3333)
-- **Rust API**: Port 8080 (http://localhost:8080)
-
-Both share the same PostgreSQL database (`mapadecoletivos`). Frontend can be configured to use either by changing the base URL.
 
 ## Implementation Status
 
@@ -291,24 +275,6 @@ Both share the same PostgreSQL database (`mapadecoletivos`). Frontend can be con
 - Image compression/optimization
 - Database connection pooling optimization
 - Comprehensive integration test suite
-- Performance benchmarks vs TypeScript API
-
-## Differences from TypeScript API
-
-### Improvements
-1. **Type Safety**: Compile-time type checking prevents runtime errors
-2. **Performance**: Significantly faster request handling and lower memory usage
-3. **Configurable URLs**: Base URL is environment-configurable (fixes hardcoded localhost:3333)
-4. **Validation-first uploads**: Files can be saved after validation (vs TypeScript saves first)
-5. **Pagination**: Built-in pagination support for list endpoint
-6. **Better error handling**: Structured error responses with proper HTTP status codes
-
-### Maintained Compatibility
-- Same database schema
-- Same JSON response structure
-- Same validation messages (Portuguese)
-- Same file naming convention
-- Same endpoint paths
 
 ## Troubleshooting
 
@@ -318,7 +284,6 @@ Error: Connection refused port 5432
 ```
 **Solution**: Ensure PostgreSQL is running:
 ```bash
-cd ../mapadecoletivos-api
 docker-compose up -d database
 ```
 
@@ -326,7 +291,7 @@ docker-compose up -d database
 ```
 Error: Migration X has already been run
 ```
-**Solution**: Migrations are shared with TypeScript API. Skip if database already has tables.
+**Solution**: Skip if database already has tables.
 
 ### Port already in use
 ```

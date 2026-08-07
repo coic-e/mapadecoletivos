@@ -1,49 +1,18 @@
 {
-  "name": "web",
+  "name": "app",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "dependencies": {
-    "@johnn-e/react-mesh-gradient": "^1.1.1",
-    "@react-three/drei": "^9.105.3",
-    "@react-three/fiber": "^8.16.1",
-    "@react-three/postprocessing": "^2.16.2",
-    "@testing-library/jest-dom": "^6.1.5",
-    "@testing-library/react": "^14.1.2",
-    "@testing-library/user-event": "^14.5.1",
-    "@types/jest": "^29.5.11",
-    "@types/node": "^20.10.5",
-    "@types/react": "^18.2.45",
-    "@types/react-dom": "^18.2.18",
-    "@vitejs/plugin-react-swc": "^3.5.0",
-    "axios": "^1.6.3",
-    "leaflet": "^1.9.4",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-icons": "^4.12.0",
-    "react-leaflet": "^4.2.1",
-    "react-router-dom": "^6.21.1",
-    "react-select": "^5.8.0",
-    "styled-components": "^6.1.8",
-    "three": "^0.163.0",
-    "typescript": "^5.3.3",
-    "vite": "^5.0.10",
-    "vite-plugin-svgr": "^4.2.0",
-    "vite-tsconfig-paths": "^4.2.2",
-    "web-vitals": "^3.5.0"
-  },
   "scripts": {
     "start": "vite",
     "build": "tsc && vite build",
     "serve": "vite preview",
     "test": "vitest",
-    "test:coverage": "vitest run --coverage --watch=false"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
+    "test:coverage": "vitest run --coverage --watch=false",
+    "lint": "eslint . --ext .ts,.tsx --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,json,css,md}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,json,css,md}\""
   },
   "browserslist": {
     "production": [
@@ -57,15 +26,47 @@
       "last 1 safari version"
     ]
   },
+  "dependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.3.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react-swc": "^4.2.3",
+    "axios": "^1.13.6",
+    "leaflet": "^1.9.4",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-icons": "^5.5.0",
+    "react-leaflet": "^5.0.0",
+    "react-router-dom": "^7.13.1",
+    "react-select": "^5.8.0",
+    "typescript": "^5.3.3",
+    "vite": "^7.3.1",
+    "vite-plugin-svgr": "^4.2.0",
+    "vite-tsconfig-paths": "^6.1.1",
+    "web-vitals": "^5.1.0",
+    "zod": "^4.3.6"
+  },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/leaflet": "^1.9.8",
-    "@types/react-leaflet": "^2.8.3",
     "@types/react-router-dom": "^5.3.3",
-    "@types/react-select": "^5.0.0",
-    "@types/styled-components": "^5.1.34",
-    "@types/three": "^0.163.0",
-    "@vitest/coverage-v8": "^1.1.0",
-    "jsdom": "^23.0.1",
-    "vitest": "^1.1.0"
+    "@types/react-select": "^5.0.1",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "@vitest/coverage-v8": "^4.0.18",
+    "eslint": "^10.0.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.3.0",
+    "jiti": "^2.6.1",
+    "jsdom": "^28.1.0",
+    "prettier": "^3.8.1",
+    "typescript-eslint": "^8.56.1",
+    "vitest": "^4.0.18"
   }
 }

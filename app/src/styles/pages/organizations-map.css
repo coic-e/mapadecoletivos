@@ -1,0 +1,229 @@
+:root {
+  --primary-color: #3b82f6;
+  --secondary-color: #ef4444;
+  --text-color: #fff;
+  --hover-color: #60a5fa;
+}
+
+#page-map {
+  width: 100vw;
+  height: 100vh;
+  background: #fffef9;
+  position: relative;
+  display: flex;
+}
+
+#page-map aside {
+  width: 440px;
+  min-width: 380px;
+  padding: 3rem 2.5rem;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.5rem;
+  background: #fffef9;
+}
+
+#page-map aside h2 {
+  text-transform: uppercase;
+  font-size: clamp(2.5rem, 4vw, 3.5rem);
+  font-weight: 800;
+  line-height: 1.1;
+  color: #1a1a1a;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  margin-top: 0;
+}
+
+#page-map aside p {
+  line-height: 1.4;
+  font-size: clamp(1.25rem, 2.5vw, 1.75rem);
+  color: #4a4a4a;
+  text-shadow: none;
+  margin: 0;
+}
+
+#page-map .leaflet-container {
+  z-index: 5;
+  background: #1a1a1a;
+}
+
+#page-map .leaflet-pane,
+#page-map .leaflet-tile-pane,
+#page-map .leaflet-tile-container {
+  background: #1a1a1a;
+}
+
+#page-map .leaflet-tile {
+  background: #1a1a1a;
+}
+
+#page-map .create-organization {
+  position: absolute;
+
+  right: 40px;
+  bottom: 40px;
+
+  z-index: 10;
+
+  width: 64px;
+  height: 64px;
+  background: #1a1a1a;
+  border-radius: 32px;
+  border: 2px solid #1a1a1a;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+#page-map .create-organization:hover {
+  background: #ffffff;
+  border-color: #1a1a1a;
+  transform: scale(1.05) translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+#page-map .create-organization svg {
+  transition: all 0.3s ease;
+}
+
+#page-map .create-organization:hover svg {
+  color: #1a1a1a !important;
+}
+
+#page-map .map-popup .leaflet-popup-content-wrapper {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px);
+}
+
+#page-map .map-popup .leaflet-popup-content {
+  color: #333;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 12px 16px;
+
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+#page-map .map-popup .leaflet-popup-content a {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  background: #1a1a1a;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-radius: 12px;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  transition: all 0.2s ease;
+}
+
+#page-map .map-popup .leaflet-popup-content a:hover {
+  background: #000000;
+  transform: scale(1.05);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+}
+
+#page-map .map-popup .leaflet-popup-tip-container {
+  display: none;
+}
+
+/* Tablet styles */
+@media (max-width: 1024px) {
+  #page-map aside {
+    width: 360px;
+    min-width: 320px;
+    padding: 2rem 1.5rem;
+    background-size: 150px auto;
+  }
+
+  #page-map .create-organization {
+    right: 30px;
+    bottom: 30px;
+    width: 56px;
+    height: 56px;
+  }
+}
+
+/* Mobile landscape / Small tablet */
+@media (max-width: 768px) {
+  #page-map {
+    flex-direction: column;
+  }
+
+  #page-map aside {
+    width: 100%;
+    min-width: unset;
+    padding: 1.5rem;
+    background-size: 120px auto;
+    background-position: center top 1rem;
+    min-height: auto;
+    justify-content: flex-start;
+  }
+
+  #page-map aside header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  #page-map .leaflet-container {
+    flex: 1;
+    min-height: 400px;
+  }
+
+  #page-map .create-organization {
+    right: 20px;
+    bottom: 20px;
+    width: 52px;
+    height: 52px;
+  }
+
+  #page-map .create-organization svg {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+/* Mobile portrait */
+@media (max-width: 480px) {
+  #page-map aside {
+    padding: 1rem;
+    background-size: 100px auto;
+  }
+
+  #page-map .create-organization {
+    right: 16px;
+    bottom: 16px;
+    width: 48px;
+    height: 48px;
+  }
+
+  #page-map .map-popup .leaflet-popup-content {
+    font-size: 16px;
+    margin: 10px 12px;
+  }
+
+  #page-map .map-popup .leaflet-popup-content a {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+  }
+
+  #page-map .map-popup .leaflet-popup-content a svg {
+    width: 16px;
+    height: 16px;
+  }
+}

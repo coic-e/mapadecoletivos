@@ -19,12 +19,10 @@ async fn test_health_endpoint() {
 #[cfg(all(test, not(debug_assertions)))]
 mod with_database {
     use super::*;
-    use api_rust::{
-        config::AppConfig, db::establish_connection_pool, handlers::collective_handler,
-    };
+    use api_rust::{config::AppConfig, db::establish_connection_pool, domains};
 
     #[actix_web::test]
-    async fn test_list_collectives() {
+    async fn test_list_organizations() {
         dotenv::dotenv().ok();
         let config = AppConfig::from_env().expect("Failed to load config");
         let pool = establish_connection_pool();
@@ -33,11 +31,11 @@ mod with_database {
             App::new()
                 .app_data(web::Data::new(pool.clone()))
                 .app_data(web::Data::new(config.clone()))
-                .route("/collectives", web::get().to(collective_handler::index)),
+                .configure(domains::organizations::configure),
         )
         .await;
 
-        let req = test::TestRequest::get().uri("/collectives").to_request();
+        let req = test::TestRequest::get().uri("/organizations").to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_success());
     }

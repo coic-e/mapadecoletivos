@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+api-types = { path = "../api-types" }
+db-types = { path = "../db-types" }
 actix-web = "4"
 actix-rt = "2"
 actix-cors = "0.7"

@@ -1,7 +1,7 @@
 import Landing from "./Landing";
-import Collective from "./Collective";
-import CreateCollective from "./CreateCollective";
-import CollectivesMap from "./CollectivesMap";
+import Organization from "./Organization";
+import CreateOrganization from "./CreateOrganization";
+import OrganizationsMap from "./OrganizationsMap";
 import RootError from "./ErrorPage";
 
-export { Landing, Collective, CreateCollective, CollectivesMap, RootError};
+export { Landing, Organization, CreateOrganization, OrganizationsMap, RootError };

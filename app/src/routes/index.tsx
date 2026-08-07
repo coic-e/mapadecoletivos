@@ -1,15 +1,5 @@
-import {
-  createBrowserRouter,
-  Navigate,
-  createRoutesFromElements
-} from "react-router-dom";
-import {
-  Landing,
-  Collective,
-  RootError,
-  CollectivesMap,
-  CreateCollective,
-} from "../pages";
+import { createBrowserRouter, Navigate } from "react-router-dom";
+import { Landing, Organization, RootError, OrganizationsMap, CreateOrganization } from "../pages";
 
 /**
  * Application routes
@@ -23,17 +13,17 @@ export const router = createBrowserRouter([
   },
   {
     path: "/raves",
-    element: <CollectivesMap />,
+    element: <OrganizationsMap />,
     errorElement: <RootError />,
   },
   {
     path: "/raves/create",
-    element: <CreateCollective />,
+    element: <CreateOrganization />,
     errorElement: <RootError />,
   },
   {
     path: "/raves/:id",
-    element: <Collective />,
+    element: <Organization />,
     errorElement: <RootError />,
   },
   {
@@ -41,6 +31,3 @@ export const router = createBrowserRouter([
     element: <Navigate to="/" />,
   },
 ]);
-
-
-

@@ -21,7 +21,7 @@ function Sidebar() {
   return (
     <aside className="app-sidebar">
       <div className="group-icons"></div>
-      <img src={iconDiscoBall} alt="Collective" />
+      <img src={iconDiscoBall} alt="Organization" />
 
       <footer>
         <button

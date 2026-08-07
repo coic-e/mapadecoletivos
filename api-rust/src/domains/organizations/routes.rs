@@ -8,8 +8,8 @@ use crate::config::AppConfig;
 use crate::db::DbPool;
 use crate::errors::ApiError;
 use crate::handlers::upload::{cleanup_files, parse_bigdecimal, process_multipart};
-use crate::models::organization::NewOrganization;
-use crate::views::OrganizationView;
+use db_types::organization::NewOrganization;
+use api_types::OrganizationView;
 
 use super::actions;
 

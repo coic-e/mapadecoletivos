@@ -2,9 +2,9 @@ use diesel::prelude::*;
 
 use crate::db::DbConnection;
 use crate::errors::ApiError;
-use crate::models::image::{Image, NewImage};
-use crate::models::organization::{NewOrganization, Organization};
-use crate::schema::{images, organizations};
+use db_types::image::{Image, NewImage};
+use db_types::organization::{NewOrganization, Organization};
+use db_types::schema::{images, organizations};
 
 pub struct OrganizationRepository;
 

@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: MIT */
 import { useRouteError } from "react-router-dom";
 
-export default function RootError(): JSX.Element {
+export default function RootError(): React.JSX.Element {
   const err = useRouteError() as RouteError;
 
   return (
@@ -10,8 +10,7 @@ export default function RootError(): JSX.Element {
       <div>
         <h1>Oops!</h1>
         <p>Sorry, an unexpected error has occurred.</p>
-        <strong>Error {err.status || 500}</strong>:{" "}
-        {err.statusText ?? err.message}
+        <strong>Error {err.status || 500}</strong>: {err.statusText ?? err.message}
       </div>
     </div>
   );

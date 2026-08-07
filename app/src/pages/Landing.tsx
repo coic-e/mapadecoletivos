@@ -1,30 +1,94 @@
-import React, { Suspense } from "react";
+import React, { useEffect, useRef } from "react";
 import { FiArrowRight } from "react-icons/fi";
 import { Link } from "react-router-dom";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import gsap from "gsap";
+import HorseAnimation from "../components/HorseAnimation";
+
 import "../styles/pages/landing.css";
-import ThreeElement from "../components/ThreeElement";
-import * as THREE from "three";
-import { extend } from "@react-three/fiber";
-import { ACESFilmicToneMapping, SRGBColorSpace } from "three";
-import Discoballs from "../components/Discoballs";
-import Overlay from "../components/Overlay";
-import { Cube } from "../components/Cube";
-import { MeshGradientRenderer } from "@johnn-e/react-mesh-gradient";
 
 function Landing() {
+  const titleRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (!titleRef.current) return;
+
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*";
+    const originalText = "MAPA DE RAVE";
+    let currentText = originalText;
+
+    const scramble = () => {
+      const timeline = gsap.timeline();
+      const duration = 2;
+      const steps = 20;
+
+      for (let i = 0; i <= steps; i++) {
+        timeline.to(
+          {},
+          {
+            duration: duration / steps,
+            onStart: () => {
+              if (!titleRef.current) return;
+              
+              const progress = i / steps;
+              const scrambledText = originalText
+                .split("")
+                .map((char, index) => {
+                  if (char === " ") return " ";
+                  
+                  // Gradually reveal characters from left to right
+                  const charProgress = index / originalText.length;
+                  if (progress > charProgress + 0.2) {
+                    return char;
+                  } else if (progress < charProgress - 0.2) {
+                    return chars[Math.floor(Math.random() * chars.length)];
+                  } else {
+                    // In the transition zone, randomly show correct char
+                    return Math.random() > 0.5 
+                      ? char 
+                      : chars[Math.floor(Math.random() * chars.length)];
+                  }
+                })
+                .join("");
+              
+              currentText = scrambledText;
+              titleRef.current.textContent = currentText;
+            },
+          }
+        );
+      }
+
+      // Ensure final text is correct
+      timeline.call(() => {
+        if (titleRef.current) {
+          titleRef.current.textContent = originalText;
+        }
+      });
+
+      return timeline;
+    };
+
+    // Run scramble effect on mount
+    const tl = scramble();
+
+    return () => {
+      tl.kill();
+    };
+  }, []);
+
   return (
-    <>
-      <MeshGradientRenderer
-        id="gradient-container"
-        className="gradient"
-        colors={["#C3E4FF", "#6EC3F4", "#EAE2FF", "#B9BEFF", "#B3B8F9"]}
-      />
-      <Suspense fallback={null}>
-        <Discoballs />
-      </Suspense>
-      <Overlay />
-    </>
+    <div id="page-landing">
+      <HorseAnimation />
+      <div className="content-wrapper">
+        <main>
+          <h1 ref={titleRef}>MAPA DE RAVE</h1>
+          <p>Descubra a Batida do Underground</p>
+        </main>
+
+        <Link to="/raves" className="enter-app">
+          <FiArrowRight size={26} color="#ffffff" />
+        </Link>
+      </div>
+    </div>
   );
 }
 

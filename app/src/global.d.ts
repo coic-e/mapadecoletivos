@@ -17,6 +17,13 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_API_KEY: string;
   readonly VITE_FIREBASE_AUTH_DOMAIN: string;
   readonly VITE_GA_MEASUREMENT_ID: string;
+  readonly VITE_USERNAME: string;
+  readonly VITE_STYLE_ID: string;
+  readonly VITE_ACCESS_TOKEN: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
 }
 
 declare module "relay-runtime" {

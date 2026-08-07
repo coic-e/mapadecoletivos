@@ -4,8 +4,8 @@ use diesel::Connection;
 
 use crate::db::DbConnection;
 use crate::errors::ApiError;
-use crate::models::image::NewImage;
-use crate::models::organization::{NewOrganization, Organization};
+use db_types::image::NewImage;
+use db_types::organization::{NewOrganization, Organization};
 
 use super::repository::{ImageRepository, OrganizationRepository};
 
@@ -14,7 +14,7 @@ pub fn create_organization(
     conn: &mut DbConnection,
     new_org: NewOrganization,
     files: Vec<String>,
-) -> Result<(Organization, Vec<crate::models::image::Image>), ApiError> {
+) -> Result<(Organization, Vec<db_types::image::Image>), ApiError> {
     conn.transaction::<_, ApiError, _>(|conn| {
         // Create organization
         let organization = OrganizationRepository::create(conn, &new_org)?;
@@ -39,7 +39,7 @@ pub fn create_organization(
 pub fn get_organization_by_id(
     conn: &mut DbConnection,
     id: i32,
-) -> Result<(Organization, Vec<crate::models::image::Image>), ApiError> {
+) -> Result<(Organization, Vec<db_types::image::Image>), ApiError> {
     OrganizationRepository::find_by_id(conn, id)
 }
 
@@ -48,6 +48,6 @@ pub fn get_all_organizations(
     conn: &mut DbConnection,
     limit: Option<i64>,
     offset: Option<i64>,
-) -> Result<Vec<(Organization, Vec<crate::models::image::Image>)>, ApiError> {
+) -> Result<Vec<(Organization, Vec<db_types::image::Image>)>, ApiError> {
     OrganizationRepository::find_all(conn, limit, offset)
 }

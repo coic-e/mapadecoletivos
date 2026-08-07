@@ -1,0 +1,147 @@
+#page-organization {
+  display: flex;
+  min-height: 100vh;
+}
+
+#page-organization main {
+  flex: 1;
+}
+
+.organization-details {
+  width: 700px;
+  margin: 64px auto;
+
+  background: white;
+  border: 1px solid #d3e2e5;
+  border-radius: 20px;
+
+  overflow: hidden;
+}
+
+.organization-details > img {
+  width: 100%;
+  height: 300px;
+  object-fit: cover;
+}
+
+.organization-details .images {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  column-gap: 16px;
+
+  margin: 16px 40px 0;
+}
+
+.organization-details .images button {
+  border: 0;
+  height: 88px;
+  background: none;
+  cursor: pointer;
+  border-radius: 20px;
+  overflow: hidden;
+  outline: none;
+
+  opacity: 0.6;
+}
+
+.organization-details .images button.active {
+  opacity: 1;
+}
+
+.organization-details .images button img {
+  width: 100%;
+  height: 88px;
+  object-fit: cover;
+}
+
+.organization-details .organization-details-content {
+  padding: 80px;
+}
+
+.organization-details .organization-details-content h1 {
+  color: #4d6f80;
+  font-size: 54px;
+  line-height: 54px;
+  margin-bottom: 8px;
+}
+
+.organization-details .organization-details-content h2 {
+  color: #4d6f80;
+  line-height: 54px;
+  margin-bottom: 8px;
+}
+
+.organization-details .organization-details-content p {
+  line-height: 28px;
+  color: #5c8599;
+  margin-top: 24px;
+}
+
+.organization-details .organization-details-content .map-container {
+  margin-top: 64px;
+  background: #e6f7fb;
+  border: 1px solid #b3dae2;
+  border-radius: 20px;
+}
+
+.organization-details .organization-details-content .map-container footer {
+  padding: 20px 0;
+  text-align: center;
+}
+
+.organization-details .organization-details-content .map-container footer a {
+  line-height: 24px;
+  color: #1a1a1a;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.organization-details .organization-details-content .map-container .leaflet-container {
+  border-bottom: 1px solid #dde3f0;
+  border-radius: 20px;
+  background: #1a1a1a;
+}
+
+.organization-details .organization-details-content .map-container .leaflet-pane,
+.organization-details .organization-details-content .map-container .leaflet-tile-pane,
+.organization-details .organization-details-content .map-container .leaflet-tile-container {
+  background: #1a1a1a;
+}
+
+.organization-details .organization-details-content .map-container .leaflet-tile {
+  background: #1a1a1a;
+}
+
+.organization-details .organization-details-content hr {
+  width: 100%;
+  height: 1px;
+  border: 0;
+  background: #d3e2e6;
+  margin: 64px 0;
+}
+
+.organization-details .organization-details-content button.contact-button {
+  margin-top: 64px;
+
+  width: 100%;
+  height: 64px;
+  border: 0;
+  cursor: pointer;
+  background: #1a1a1a;
+  border-radius: 20px;
+  color: #ffffff;
+  font-weight: 800;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.organization-details .organization-details-content button.contact-button:hover {
+  background: #000000;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}

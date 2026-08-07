@@ -1,3 +1,3 @@
 import Discoball from "./Discoball";
 
-export default Discoball; 
+export default Discoball;
