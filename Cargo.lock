@@ -429,8 +429,10 @@ dependencies = [
  "actix-rt",
  "actix-test",
  "actix-web",
+ "api-types",
  "bigdecimal",
  "chrono",
+ "db-types",
  "diesel",
  "dotenv",
  "env_logger",
@@ -441,6 +443,15 @@ dependencies = [
  "thiserror",
  "tokio",
  "validator",
+]
+
+[[package]]
+name = "api-types"
+version = "0.1.0"
+dependencies = [
+ "bigdecimal",
+ "db-types",
+ "serde",
 ]
 
 [[package]]
@@ -731,6 +742,17 @@ dependencies = [
  "darling_core 0.21.3",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "db-types"
+version = "0.1.0"
+dependencies = [
+ "bigdecimal",
+ "chrono",
+ "diesel",
+ "serde",
+ "validator",
 ]
 
 [[package]]

@@ -1,0 +1,51 @@
+services:
+  database:
+    image: postgres:16-alpine
+    container_name: rave-map-db
+    restart: always
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_USER=docker
+      - POSTGRES_PASSWORD=ravemap
+      - POSTGRES_DB=rave_map
+      - PGDATA=/data/postgres
+    volumes:
+      - pgdata:/data/postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docker -d rave_map"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - rave-map-network
+  rust-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rave-map-rust-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgresql://docker:ravemap@database:5432/rave_map
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+      - UPLOAD_DIR=uploads
+      - MAX_FILE_SIZE=10485760
+      - BASE_URL=http://localhost:8080
+      - RUST_LOG=info
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - rave-map-network
+
+networks:
+  rave-map-network:
+    driver: bridge
+
+volumes:
+  pgdata:

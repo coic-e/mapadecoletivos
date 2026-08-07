@@ -104,3 +104,10 @@ dist
 .tern-port
 
 target
+# Embedded repos (own .git, not tracked here)
+api-rust/
+app/
+api-legada/
+
+# Runtime uploads
+uploads/

@@ -1,5 +1,5 @@
 [workspace]
-members = ["api-rust"]
+members = ["api-rust", "api-types", "db-types"]
 resolver = "2"
 
 [workspace.package]

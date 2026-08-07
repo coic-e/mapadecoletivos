@@ -1,0 +1,8 @@
+.git
+**/.git
+api/
+app/
+target/
+**/uploads/
+**/*.env
+.env
