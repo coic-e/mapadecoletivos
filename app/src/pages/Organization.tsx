@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
 
 import { env } from "@/config/env";
@@ -31,24 +31,56 @@ interface OrganizationParams extends Record<string, string | undefined> {
   id: string;
 }
 
+/**
+ * O cadastro aceita o social em formato livre ("@perfil", "instagram.com/x",
+ * URL completa). Sem normalizar, "@perfil" vira link relativo e leva para
+ * /raves/@perfil. Handle solto assume Instagram, que é onde a cena vive.
+ */
+function toSocialUrl(social: string) {
+  const value = social.trim();
+
+  if (value === "") return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (value.startsWith("@")) return `https://instagram.com/${value.slice(1)}`;
+
+  return `https://${value}`;
+}
+
 function Organization() {
   const params = useParams<OrganizationParams>();
   const [organization, setOrganization] = useState<IOrganization>();
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [activeImageIndex, setActiveImageIndex] = useState(0);
 
   useEffect(() => {
+    // Impede que a resposta de um id antigo sobrescreva a do id atual quando
+    // se navega rápido entre organizações.
+    let cancelled = false;
+
+    setStatus("loading");
+    setActiveImageIndex(0);
+
     api
       .get(`organizations/${params.id}`)
       .then((response) => {
-        const organization = response.data;
+        if (cancelled) return;
 
-        if (organization) {
-          setOrganization(organization);
+        if (response.data) {
+          setOrganization(response.data);
+          setStatus("ready");
+        } else {
+          setStatus("error");
         }
       })
-      .catch((error) => {
-        console.error("Error fetching organization:", error);
+      .catch(() => {
+        if (!cancelled) {
+          setStatus("error");
+        }
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [params.id]);
 
   // Chamado antes do early return: hook não pode ficar atrás de condicional.
@@ -62,17 +94,30 @@ function Organization() {
     path: `/raves/${params.id}`,
   });
 
-  if (!organization) {
+  if (status === "error") {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-background px-6 text-center">
+        <h1 className="font-display text-4xl tracking-wide text-foreground">Rolê não encontrado</h1>
+        <p className="max-w-md font-sans text-base text-muted-foreground">
+          Esse cadastro não existe ou saiu do ar. Volte para o mapa e escolha outro.
+        </p>
+        <Button asChild className="mt-2">
+          <Link to="/raves">Voltar para o mapa</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  if (status === "loading" || !organization) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-background">
-        <p className="font-sans text-base text-muted-foreground">
-          Buscando informações da organização...
-        </p>
+        <p className="font-sans text-base text-muted-foreground">Buscando informações do rolê...</p>
       </div>
     );
   }
 
   const images = organization.images ?? [];
+  const socialUrl = toSocialUrl(organization.social);
   const activeImage = images[activeImageIndex];
 
   return (
@@ -159,11 +204,13 @@ function Organization() {
             <hr className="my-10 h-px border-0 bg-border" />
 
             <div className="flex flex-col gap-4 sm:flex-row">
-              <Button asChild variant="outline" className="flex-1">
-                <a href={organization.social} target="_blank" rel="noopener noreferrer">
-                  Ver redes sociais
-                </a>
-              </Button>
+              {socialUrl && (
+                <Button asChild variant="outline" className="flex-1">
+                  <a href={socialUrl} target="_blank" rel="noopener noreferrer">
+                    Ver redes sociais
+                  </a>
+                </Button>
+              )}
 
               <Button asChild className="flex-1">
                 <a href={`mailto:${organization.email}`}>Entrar em contato</a>
