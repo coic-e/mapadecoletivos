@@ -1,49 +1,104 @@
-use actix_cors::Cors;
-use actix_files as fs;
-use actix_web::{middleware::Logger, web, App, HttpResponse, HttpServer};
+use std::time::Duration;
 
+use actix_cors::Cors;
+use actix_web::http::header;
+use actix_web::{middleware, web, App, HttpResponse, HttpServer};
+
+use api_rust::handlers::static_files::uploads_service;
+use api_rust::handlers::upload::payload_config;
+use api_rust::rate_limit::{LoginRateLimiter, SubmissionRateLimiter};
 use api_rust::{config::AppConfig, db::establish_connection_pool, domains};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Load environment variables
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
 
     // Initialize logger
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
     // Load configuration
-    let config = AppConfig::from_env().expect("Failed to load configuration from environment");
+    let config = match AppConfig::from_env() {
+        Ok(config) => config,
+        Err(e) => {
+            // Sem log::error aqui: a config é o que decide o logger, e a
+            // mensagem precisa aparecer mesmo com RUST_LOG desligado.
+            eprintln!("configuração inválida: {e}");
+            std::process::exit(1);
+        }
+    };
 
     log::info!(
         "Starting server at {}:{}",
         config.server_host,
         config.server_port
     );
-    log::info!("Database: {}", config.database_url);
+    // DATABASE_URL fica fora do log: ela carrega usuário e senha do banco, e
+    // log de aplicação costuma ir parar em serviço de terceiro.
     log::info!("Base URL: {}", config.base_url);
+    log::info!("Origens CORS: {:?}", config.cors_allowed_origins);
 
     // Establish database connection pool
-    let pool = establish_connection_pool();
+    let pool = establish_connection_pool(&config);
 
     // Clone values needed for server closure
     let server_host = config.server_host.clone();
     let server_port = config.server_port;
     let upload_dir = config.upload_dir.clone();
 
+    let rate_window = Duration::from_secs(config.rate_limit_window_secs);
+    // Fora do closure: cada worker do actix roda o closure uma vez, e um
+    // limitador por worker contaria cada IP N vezes antes de barrar.
+    let login_limiter = web::Data::new(LoginRateLimiter::new(config.login_rate_limit, rate_window));
+    let submission_limiter = web::Data::new(SubmissionRateLimiter::new(
+        config.submission_rate_limit,
+        rate_window,
+    ));
+
     HttpServer::new(move || {
-        // Configure CORS - permissive for development
-        let cors = Cors::permissive();
+        // Só as origens configuradas, e só o que a aplicação usa de fato. O
+        // permissivo de antes deixava qualquer site na internet ler as
+        // respostas da API pelo navegador de quem visitasse.
+        let mut cors = Cors::default()
+            .allowed_methods(vec!["GET", "POST", "OPTIONS"])
+            .allowed_headers(vec![header::AUTHORIZATION, header::CONTENT_TYPE])
+            .max_age(3600);
+
+        for origin in &config.cors_allowed_origins {
+            cors = cors.allowed_origin(origin);
+        }
 
         App::new()
             .app_data(web::Data::new(pool.clone()))
             .app_data(web::Data::new(config.clone()))
+            .app_data(login_limiter.clone())
+            .app_data(submission_limiter.clone())
+            .app_data(payload_config(&config))
+            // Corpo JSON pequeno: as rotas que recebem JSON só levam login e
+            // motivo de rejeição.
+            .app_data(web::JsonConfig::default().limit(16 * 1024))
             .wrap(cors)
-            .wrap(Logger::default())
-            // Static file serving for uploads
-            .service(fs::Files::new("/uploads", &upload_dir).show_files_listing())
+            .wrap(
+                middleware::DefaultHeaders::new()
+                    .add((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
+                    .add((header::X_FRAME_OPTIONS, "DENY"))
+                    .add((header::REFERRER_POLICY, "no-referrer"))
+                    .add((
+                        header::STRICT_TRANSPORT_SECURITY,
+                        "max-age=31536000; includeSubDomains",
+                    ))
+                    .add(("Cross-Origin-Opener-Policy", "same-origin"))
+                    .add((
+                        "Permissions-Policy",
+                        "geolocation=(), camera=(), microphone=()",
+                    )),
+            )
+            .wrap(middleware::Logger::default())
+            // Imagens dos cadastros. Regras em handlers::static_files.
+            .service(uploads_service(&upload_dir))
             // Domain routes
             .configure(domains::organizations::configure)
+            .configure(domains::admins::configure)
             // Health check endpoint
             .route(
                 "/health",

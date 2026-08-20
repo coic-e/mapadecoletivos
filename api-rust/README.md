@@ -158,26 +158,34 @@ Returns single collective with images.
 
 **Response:** Same structure as array item above, or 404 if not found.
 
-### Create Collective (Partially Implemented)
+### Create Collective
 
 ```http
-POST /collectives
+POST /organizations
 Content-Type: multipart/form-data
 ```
 
-**Note:** This endpoint requires additional work to fully parse multipart form data with text fields. Currently handles file uploads but text field extraction needs implementation.
+Cria com `status = "pending"`: o cadastro só aparece no site depois que um moderador aprova.
 
-**Expected fields:**
-- `name` (required)
-- `latitude` (required, numeric)
-- `longitude` (required, numeric)
-- `type` (required)
-- `city` (required)
-- `uf` (required)
-- `email` (required, valid email)
-- `social` (required)
-- `about` (required, max 300 chars)
-- `images[]` (file uploads)
+**Obrigatórios**
+
+| Campo | Regra |
+|---|---|
+| `name` | 1 a 120 caracteres |
+| `latitude` / `longitude` | numéricos, dentro da faixa do globo |
+| `type` | um de: Festa, Festival, Label, Radio, Podcast, Coletivo, Nucleo, Club, Bar, Produtora, outro |
+| `city` | 1 a 120 caracteres |
+| `uf` | 2 letras |
+| `email` | e-mail válido |
+| `about` | 10 a 1200 caracteres |
+| `genres` | um ou mais da lista fechada, **separados por vírgula num campo só** — os campos do multipart viram um mapa, então nome repetido se sobrescreveria |
+| `images` | ao menos um arquivo |
+
+**Opcionais:** `address`, `instagram`, `soundcloud`, `bandcamp`, `youtube`, `spotify`, `website`, `frequency` (Semanal, Quinzenal, Mensal, Sazonal, Pontual) e `is_active` (ausente significa ativo).
+
+**Regra que cruza campos:** pelo menos um dos seis links precisa vir preenchido, senão o cadastro não serve para achar o rolê. O erro volta em `errors.__all__`, não preso a um campo.
+
+Os gêneros aceitos estão em `MUSIC_GENRES`, em `db-types/src/organization.rs`. A lista é fechada dos dois lados porque é ela que sustenta o filtro do mapa: texto livre viraria "techno", "Techno" e "tekno" como três coisas diferentes.
 
 ### Healthcheck
 
@@ -186,6 +194,47 @@ GET /health
 ```
 
 Returns `OK` status.
+
+## Moderação
+
+Cadastro criado pelo site nasce com `status = "pending"` e **não aparece nas rotas públicas**. `GET /organizations` e `GET /organizations/{id}` só enxergam `approved` — um cadastro pendente responde 404, e não "existe mas está escondido".
+
+Os três estados são `pending`, `approved` e `rejected`, garantidos por um CHECK no banco.
+
+### Criando o primeiro moderador
+
+Não há rota de cadastro de admin: conta se cria com acesso ao servidor.
+
+```bash
+cd api-rust
+cargo run --bin create_admin -- "Nome" email@exemplo.com senha-de-oito-ou-mais
+```
+
+### Autenticação
+
+```http
+POST /auth/login
+{ "email": "...", "password": "..." }
+→ 200 { "token": "<jwt>", "admin": { "id": 1, "name": "...", "email": "..." } }
+→ 401 { "message": "E-mail ou senha inválidos" }
+```
+
+O token vai nas rotas administrativas como `Authorization: Bearer <jwt>` e vale `JWT_TTL_HOURS` horas (12 por padrão). `GET /auth/me` devolve o admin do token — o painel usa para saber se a sessão ainda vale.
+
+Senha é guardada com argon2. E-mail inexistente e senha errada devolvem a mesma mensagem, de propósito: a diferença revelaria quais e-mails existem.
+
+### Rotas de moderação
+
+Todas exigem Bearer token; sem ele, 401.
+
+| Rota | O que faz |
+|---|---|
+| `GET /admin/organizations?status=pending` | Fila de revisão. `status` aceita `pending`, `approved`, `rejected` ou `all`; o padrão é `pending`. Mais antigos primeiro. |
+| `GET /admin/organizations/{id}` | Detalhe, em qualquer estado |
+| `POST /admin/organizations/{id}/approve` | Passa a aparecer no site |
+| `POST /admin/organizations/{id}/reject` | Sai do site. Corpo opcional: `{ "reason": "..." }` |
+
+Aprovação e rejeição gravam `reviewed_at` e `reviewed_by`, então dá para saber quem decidiu o quê e quando.
 
 ## Development
 

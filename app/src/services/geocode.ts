@@ -9,6 +9,8 @@ export interface GeocodeResult {
   /** Cidade e UF extraídas do resultado, para preencher o formulário. */
   city: string;
   uf: string;
+  /** Logradouro: o primeiro trecho do endereço formatado, antes da cidade. */
+  address: string;
 }
 
 interface MapboxContext {
@@ -44,6 +46,7 @@ function toResult(feature: MapboxFeature): GeocodeResult {
   return {
     id: feature.id,
     label: feature.place_name,
+    address: feature.place_name.split(",")[0]?.trim() ?? "",
     latitude,
     longitude,
     city: (isPlace ? feature.text : place?.text) ?? "",

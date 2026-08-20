@@ -76,6 +76,10 @@ src/
 | `/raves` | Mapa do Brasil com todos os cadastros |
 | `/raves/:id` | Página de um rolê |
 | `/raves/create` | Formulário de cadastro |
+| `/admin/login` | Login dos moderadores |
+| `/admin` | Fila de moderação |
+
+Cadastro novo entra como pendente e só aparece no mapa depois que um moderador aprova em `/admin`. Para criar a primeira conta de moderador, veja o [README da API](../api-rust/README.md#criando-o-primeiro-moderador).
 
 ## SEO
 

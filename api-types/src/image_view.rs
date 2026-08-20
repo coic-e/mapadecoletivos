@@ -16,6 +16,9 @@ impl ImageView {
     }
 
     pub fn render_many(images: &[Image], base_url: &str) -> Vec<Self> {
-        images.iter().map(|img| Self::render(img, base_url)).collect()
+        images
+            .iter()
+            .map(|img| Self::render(img, base_url))
+            .collect()
     }
 }

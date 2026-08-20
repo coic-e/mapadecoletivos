@@ -36,6 +36,8 @@ Sobe dois serviços:
 
 A imagem da API é Debian slim, e não Alpine, porque o Diesel linka com `libpq`.
 
+> A API não sobe sem `JWT_SECRET`, que assina os tokens dos moderadores. O compose tem um valor de desenvolvimento; em produção passe pelo ambiente.
+
 ### Front-end
 
 ```bash

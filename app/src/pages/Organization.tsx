@@ -18,9 +18,18 @@ interface IOrganization {
   type: string;
   about: string;
   email: string;
-  social: string;
   city: string;
   uf: string;
+  genres: string[];
+  address: string | null;
+  instagram: string | null;
+  soundcloud: string | null;
+  bandcamp: string | null;
+  youtube: string | null;
+  spotify: string | null;
+  website: string | null;
+  is_active: boolean;
+  frequency: string | null;
   images: Array<{
     id: number;
     url: string;
@@ -32,18 +41,20 @@ interface OrganizationParams extends Record<string, string | undefined> {
 }
 
 /**
- * O cadastro aceita o social em formato livre ("@perfil", "instagram.com/x",
- * URL completa). Sem normalizar, "@perfil" vira link relativo e leva para
- * /raves/@perfil. Handle solto assume Instagram, que é onde a cena vive.
+ * Os links são digitados em formato livre ("@perfil", "site.com/x", URL
+ * completa). Sem normalizar, "@perfil" vira link relativo e leva para
+ * /raves/@perfil. O handle solto usa o domínio da plataforma do campo.
  */
-function toSocialUrl(social: string) {
-  const value = social.trim();
+function toLinkUrl(value: string | null, handleBase?: string) {
+  const link = (value ?? "").trim();
 
-  if (value === "") return null;
-  if (/^https?:\/\//i.test(value)) return value;
-  if (value.startsWith("@")) return `https://instagram.com/${value.slice(1)}`;
+  if (link === "") return null;
+  if (/^https?:\/\//i.test(link)) return link;
+  if (link.startsWith("@") && handleBase) {
+    return `${handleBase}${link.slice(1)}`;
+  }
 
-  return `https://${value}`;
+  return `https://${link.replace(/^@/, "")}`;
 }
 
 function Organization() {
@@ -117,7 +128,18 @@ function Organization() {
   }
 
   const images = organization.images ?? [];
-  const socialUrl = toSocialUrl(organization.social);
+
+  const links = [
+    {
+      label: "Instagram",
+      url: toLinkUrl(organization.instagram, "https://instagram.com/"),
+    },
+    { label: "SoundCloud", url: toLinkUrl(organization.soundcloud, "https://soundcloud.com/") },
+    { label: "Bandcamp", url: toLinkUrl(organization.bandcamp) },
+    { label: "YouTube", url: toLinkUrl(organization.youtube, "https://youtube.com/@") },
+    { label: "Spotify", url: toLinkUrl(organization.spotify) },
+    { label: "Site", url: toLinkUrl(organization.website) },
+  ].filter((link): link is { label: string; url: string } => link.url !== null);
   const activeImage = images[activeImageIndex];
 
   return (
@@ -164,9 +186,45 @@ function Organization() {
               </h1>
             </header>
 
+            {!organization.is_active && (
+              <p className="mt-4 inline-block rounded-full bg-muted px-3 py-1 font-sans text-xs font-bold tracking-wide text-muted-foreground uppercase">
+                Encerrado
+              </p>
+            )}
+
+            {organization.genres.length > 0 && (
+              <ul className="mt-4 flex flex-wrap gap-2">
+                {organization.genres.map((genre) => (
+                  <li
+                    key={genre}
+                    className="rounded-full border border-border px-3 py-1 font-sans text-xs font-semibold text-foreground"
+                  >
+                    {genre}
+                  </li>
+                ))}
+              </ul>
+            )}
+
             <p className="mt-6 font-sans text-base leading-relaxed text-muted-foreground">
               {organization.about}
             </p>
+
+            {(organization.address || organization.frequency) && (
+              <dl className="mt-6 flex flex-col gap-2 font-sans text-sm">
+                {organization.address && (
+                  <div className="flex gap-2">
+                    <dt className="font-semibold text-foreground">Endereço:</dt>
+                    <dd className="text-muted-foreground">{organization.address}</dd>
+                  </div>
+                )}
+                {organization.frequency && (
+                  <div className="flex gap-2">
+                    <dt className="font-semibold text-foreground">Frequência:</dt>
+                    <dd className="text-muted-foreground">{organization.frequency}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
 
             <div className="mt-10 overflow-hidden rounded-xl border border-border">
               <MapContainer
@@ -203,16 +261,20 @@ function Organization() {
 
             <hr className="my-10 h-px border-0 bg-border" />
 
-            <div className="flex flex-col gap-4 sm:flex-row">
-              {socialUrl && (
-                <Button asChild variant="outline" className="flex-1">
-                  <a href={socialUrl} target="_blank" rel="noopener noreferrer">
-                    Ver redes sociais
-                  </a>
-                </Button>
+            <div className="flex flex-col gap-4">
+              {links.length > 0 && (
+                <div className="flex flex-wrap gap-3">
+                  {links.map((link) => (
+                    <Button key={link.label} asChild variant="outline">
+                      <a href={link.url} target="_blank" rel="noopener noreferrer">
+                        {link.label}
+                      </a>
+                    </Button>
+                  ))}
+                </div>
               )}
 
-              <Button asChild className="flex-1">
+              <Button asChild>
                 <a href={`mailto:${organization.email}`}>Entrar em contato</a>
               </Button>
             </div>

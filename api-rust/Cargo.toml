@@ -2,6 +2,8 @@
 name = "api-rust"
 version = "0.1.0"
 edition = "2021"
+# Com create_admin no pacote, `cargo run` sem argumento ficaria ambíguo.
+default-run = "api-rust"
 
 [dependencies]
 api-types = { path = "../api-types" }
@@ -15,14 +17,16 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 diesel = { version = "2", features = ["postgres", "r2d2", "chrono", "numeric"] }
-validator = { version = "0.18", features = ["derive"] }
+validator = { version = "0.21", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 env_logger = "0.11"
-dotenv = "0.15"
+dotenvy = "0.15"
 thiserror = "1"
 log = "0.4"
 futures-util = "0.3"
 bigdecimal = { version = "0.4", features = ["serde"] }
+argon2 = "0.5"
+jsonwebtoken = "9"
 
 [dev-dependencies]
 actix-test = "0.1"

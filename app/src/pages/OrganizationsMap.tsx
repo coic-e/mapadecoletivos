@@ -54,7 +54,7 @@ function OrganizationsMap() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
 
   useSeo({
-    title: "Mapa dos coletivos de música eletrônica do Brasil | Mapa de Rave",
+    title: "Mapa de Rave | Mapa de música eletrônica do Brasil",
     description:
       "Navegue pelo mapa e descubra festas, coletivos, labels, clubs, rádios e produtoras de música eletrônica espalhados pelo Brasil.",
     path: "/raves",

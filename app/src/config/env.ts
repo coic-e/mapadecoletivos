@@ -10,6 +10,18 @@ const envSchema = z.object({
   VITE_ACCESS_TOKEN: z.string().min(1, "VITE_ACCESS_TOKEN is required"),
   /** URL absoluta do site, usada em canonical e Open Graph. Opcional em dev. */
   VITE_SITE_URL: z.string().default(""),
+  /**
+   * URL da API. Precisa ser https fora de localhost: em página https, uma API
+   * http é bloqueada pelo navegador como conteúdo misto — e, quando passa, o
+   * token do moderador viaja em texto claro.
+   */
+  VITE_API_URL: z
+    .url("VITE_API_URL precisa ser uma URL absoluta")
+    .refine(
+      (value) => value.startsWith("https://") || new URL(value).hostname === "localhost",
+      "VITE_API_URL precisa usar https fora de localhost"
+    )
+    .default("http://localhost:8080"),
 });
 
 type EnvSchema = z.infer<typeof envSchema>;
@@ -25,6 +37,7 @@ function validateEnv(): EnvSchema {
       VITE_STYLE_ID: import.meta.env.VITE_STYLE_ID,
       VITE_ACCESS_TOKEN: import.meta.env.VITE_ACCESS_TOKEN,
       VITE_SITE_URL: import.meta.env.VITE_SITE_URL,
+      VITE_API_URL: import.meta.env.VITE_API_URL,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

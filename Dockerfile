@@ -48,6 +48,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq5 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Usuário sem privilégio: se algum dia a API for explorada, o processo não
+# tem root dentro do container — e o diretório de uploads é a única coisa que
+# ele consegue escrever.
+RUN useradd --system --create-home --uid 10001 ravemap
+
 # Copy built binary from builder
 COPY --from=builder /app/target/release/api-rust /app/
 
@@ -55,7 +60,11 @@ COPY --from=builder /app/target/release/api-rust /app/
 COPY api-rust/migrations ./migrations
 
 # Create uploads directory
-RUN mkdir -p /app/uploads
+RUN mkdir -p /app/uploads \
+    && chown -R ravemap:ravemap /app \
+    && chmod 555 /app/api-rust
+
+USER ravemap
 
 # Expose port
 EXPOSE 8080

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
@@ -18,6 +18,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -34,8 +35,12 @@ import { env } from "@/config/env";
 import mapIcon from "@/utils/mapIcon";
 import { useSeo } from "@/hooks/useSeo";
 
+import { cn } from "@/lib/utils";
+
 import {
   ABOUT_MAX_LENGTH,
+  FREQUENCIES,
+  MUSIC_GENRES,
   createOrganizationSchema,
   type CreateOrganizationValues,
 } from "./create-organization.schema";
@@ -110,6 +115,7 @@ function CreateOrganization() {
   const [imageError, setImageError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [addressQuery, setAddressQuery] = useState("");
   const [addressResults, setAddressResults] = useState<GeocodeResult[]>([]);
   const [addressStatus, setAddressStatus] = useState<"idle" | "searching" | "empty" | "error">(
@@ -134,12 +140,22 @@ function CreateOrganization() {
       name: "",
       about: "",
       email: "",
-      social: "",
+      genres: [],
+      address: "",
+      instagram: "",
+      soundcloud: "",
+      bandcamp: "",
+      youtube: "",
+      spotify: "",
+      website: "",
+      frequency: undefined,
+      isActive: true,
       uf: "",
       city: "",
       type: "",
       latitude: "",
       longitude: "",
+      consent: false,
     },
   });
 
@@ -194,7 +210,12 @@ function CreateOrganization() {
     setPosition(result.latitude, result.longitude);
     map?.flyTo([result.latitude, result.longitude], 16);
 
-    // O endereço também resolve cidade e UF, que são campos do cadastro.
+    // O endereço também resolve logradouro, cidade e UF, que são campos do
+    // cadastro.
+    if (result.address !== "") {
+      form.setValue("address", result.address, { shouldValidate: true });
+    }
+
     if (result.city !== "") {
       form.setValue("city", result.city, { shouldValidate: true });
     }
@@ -240,10 +261,47 @@ function CreateOrganization() {
   const onSubmit = async (values: FormValues) => {
     setSubmitError(null);
 
+    // A API recusa cadastro sem imagem; barrar aqui evita o erro genérico do
+    // servidor depois de o usuário já ter preenchido tudo.
+    if (images.length === 0) {
+      setImageError("Envie pelo menos uma foto");
+      return;
+    }
+
     const data = new FormData();
 
-    Object.entries(values).forEach(([key, value]) => {
-      data.append(key, value);
+    data.append("name", values.name);
+    data.append("about", values.about);
+    data.append("email", values.email);
+    data.append("type", values.type);
+    data.append("city", values.city);
+    data.append("uf", values.uf);
+    data.append("latitude", values.latitude);
+    data.append("longitude", values.longitude);
+    // Os campos do multipart viram um mapa na API, então nome repetido se
+    // sobrescreveria: os gêneros vão num campo só, separados por vírgula.
+    data.append("genres", values.genres.join(","));
+    data.append("is_active", String(values.isActive));
+
+    // Opcional em branco não é enviado: para a API, ausente e vazio são a
+    // mesma coisa, e assim o payload não carrega campo vazio à toa.
+    (
+      [
+        "address",
+        "instagram",
+        "soundcloud",
+        "bandcamp",
+        "youtube",
+        "spotify",
+        "website",
+        "frequency",
+      ] as const
+    ).forEach((field) => {
+      const value = values[field];
+
+      if (value) {
+        data.append(field, value);
+      }
     });
 
     images.forEach((image) => {
@@ -252,13 +310,54 @@ function CreateOrganization() {
 
     try {
       await api.post("organizations", data);
-      navigate("/raves");
+      setSubmitted(true);
+      window.scrollTo({ top: 0 });
     } catch {
       setSubmitError("Não rolou salvar o cadastro. Confira sua conexão e tente de novo.");
     }
   };
 
   const { isSubmitting } = form.formState;
+
+  if (submitted) {
+    return (
+      <div
+        id="page-create-organization"
+        className="flex min-h-screen flex-col bg-background md:flex-row"
+      >
+        <Sidebar />
+
+        <main className="flex flex-1 items-center justify-center px-4 py-8 md:pr-8 md:pl-32">
+          <Card className="w-full max-w-xl">
+            <CardHeader>
+              <CardTitle>Cadastro enviado</CardTitle>
+              <CardDescription>
+                Ele entra no mapa assim que um moderador aprovar. Isso é para evitar cadastro falso
+                ou duplicado — não é nada com você.
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="flex flex-col gap-3 sm:flex-row">
+              <Button asChild variant="outline" className="flex-1">
+                <Link to="/raves">Ver o mapa</Link>
+              </Button>
+
+              <Button
+                className="flex-1"
+                onClick={() => {
+                  form.reset();
+                  setImages([]);
+                  setSubmitted(false);
+                }}
+              >
+                Cadastrar outro
+              </Button>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -331,6 +430,94 @@ function CreateOrganization() {
 
                 <FormField
                   control={form.control}
+                  name="genres"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Gêneros</FormLabel>
+
+                      <div className="flex flex-wrap gap-2">
+                        {MUSIC_GENRES.map((genre) => {
+                          const selected = field.value.includes(genre);
+
+                          return (
+                            <button
+                              type="button"
+                              key={genre}
+                              aria-pressed={selected}
+                              onClick={() =>
+                                field.onChange(
+                                  selected
+                                    ? field.value.filter((item) => item !== genre)
+                                    : [...field.value, genre]
+                                )
+                              }
+                              className={cn(
+                                "cursor-pointer rounded-full border border-solid px-3 py-1.5 font-sans text-sm transition-colors",
+                                selected
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-input bg-card text-muted-foreground hover:border-ring hover:text-foreground"
+                              )}
+                            >
+                              {genre}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <FormDescription>
+                        Marque quantos descreverem o som. É por aqui que as pessoas vão filtrar o
+                        mapa.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="frequency"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Com que frequência rola</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || undefined}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Opcional" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {FREQUENCIES.map((frequency) => (
+                            <SelectItem key={frequency} value={frequency}>
+                              {frequency}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="isActive"
+                  render={({ field }) => (
+                    <FormItem className="flex-row items-start gap-3">
+                      <FormControl>
+                        <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                      <div className="flex flex-col gap-1">
+                        <FormLabel className="normal-case">Este rolê ainda está ativo</FormLabel>
+                        <FormDescription>
+                          Desmarque se já encerrou. Ele continua no mapa, com aviso de encerrado.
+                        </FormDescription>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
                   name="about"
                   render={({ field }) => (
                     <FormItem>
@@ -363,6 +550,24 @@ function CreateOrganization() {
               </CardHeader>
 
               <CardContent className="space-y-6">
+                <FormField
+                  control={form.control}
+                  name="address"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Endereço</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Rua, número e bairro (opcional)" {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        Faz sentido para lugar fixo, como club e bar. Festa itinerante pode deixar
+                        em branco.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <div className="space-y-2">
                   <Label htmlFor="address-search">Buscar endereço</Label>
 
@@ -556,20 +761,54 @@ function CreateOrganization() {
                       </FormItem>
                     )}
                   />
+                </div>
 
-                  <FormField
-                    control={form.control}
-                    name="social"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Social</FormLabel>
-                        <FormControl>
-                          <Input placeholder="@seuperfil" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="font-sans text-sm font-bold tracking-wide text-foreground uppercase">
+                      Links
+                    </h3>
+                    <p className="font-sans text-xs text-muted-foreground">
+                      Pelo menos um. O SoundCloud e o Bandcamp são onde as pessoas escutam o som
+                      antes de decidir ir.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    {(
+                      [
+                        { name: "instagram", label: "Instagram", placeholder: "@seuperfil" },
+                        {
+                          name: "soundcloud",
+                          label: "SoundCloud",
+                          placeholder: "soundcloud.com/…",
+                        },
+                        {
+                          name: "bandcamp",
+                          label: "Bandcamp",
+                          placeholder: "seurole.bandcamp.com",
+                        },
+                        { name: "youtube", label: "YouTube", placeholder: "youtube.com/@…" },
+                        { name: "spotify", label: "Spotify", placeholder: "open.spotify.com/…" },
+                        { name: "website", label: "Site", placeholder: "https://…" },
+                      ] as const
+                    ).map((link) => (
+                      <FormField
+                        key={link.name}
+                        control={form.control}
+                        name={link.name}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{link.label}</FormLabel>
+                            <FormControl>
+                              <Input placeholder={link.placeholder} {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    ))}
+                  </div>
                 </div>
 
                 <FormItem>
@@ -615,7 +854,9 @@ function CreateOrganization() {
                     className="hidden"
                   />
 
-                  <FormDescription>JPG ou PNG, até 5 MB por arquivo. Opcional.</FormDescription>
+                  <FormDescription>
+                    JPG ou PNG, até 5 MB por arquivo. Pelo menos uma é obrigatória.
+                  </FormDescription>
 
                   {imageError && (
                     <p className="font-sans text-xs font-semibold text-destructive">{imageError}</p>
@@ -623,6 +864,28 @@ function CreateOrganization() {
                 </FormItem>
               </CardContent>
             </Card>
+
+            <FormField
+              control={form.control}
+              name="consent"
+              render={({ field }) => (
+                <FormItem className="flex-row items-start gap-3 rounded-md border border-solid border-border bg-card p-4">
+                  <FormControl>
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+
+                  <div className="flex flex-col gap-1">
+                    <FormLabel className="normal-case">
+                      Tenho autorização para cadastrar este rolê
+                    </FormLabel>
+                    <FormDescription>
+                      Cadastre só o que é seu ou o que você foi autorizado a colocar no mapa.
+                    </FormDescription>
+                    <FormMessage />
+                  </div>
+                </FormItem>
+              )}
+            />
 
             {submitError && (
               <div

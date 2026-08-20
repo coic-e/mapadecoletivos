@@ -1,5 +1,13 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
-import { Landing, Organization, RootError, OrganizationsMap, CreateOrganization } from "../pages";
+import {
+  Landing,
+  Organization,
+  RootError,
+  OrganizationsMap,
+  CreateOrganization,
+  AdminLogin,
+  AdminModeration,
+} from "../pages";
 
 /**
  * Application routes
@@ -24,6 +32,16 @@ export const router = createBrowserRouter([
   {
     path: "/raves/:id",
     element: <Organization />,
+    errorElement: <RootError />,
+  },
+  {
+    path: "/admin/login",
+    element: <AdminLogin />,
+    errorElement: <RootError />,
+  },
+  {
+    path: "/admin",
+    element: <AdminModeration />,
     errorElement: <RootError />,
   },
   {

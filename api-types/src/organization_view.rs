@@ -1,5 +1,6 @@
 use crate::image_view::ImageView;
 use bigdecimal::ToPrimitive;
+use chrono::NaiveDateTime;
 use db_types::image::Image;
 use db_types::organization::Organization;
 use serde::Serialize;
@@ -15,9 +16,22 @@ pub struct OrganizationView {
     pub city: String,
     pub uf: String,
     pub email: String,
-    pub social: String,
     pub about: String,
+    pub genres: Vec<String>,
+    pub address: Option<String>,
+    pub instagram: Option<String>,
+    pub soundcloud: Option<String>,
+    pub bandcamp: Option<String>,
+    pub youtube: Option<String>,
+    pub spotify: Option<String>,
+    pub website: Option<String>,
+    pub is_active: bool,
+    pub frequency: Option<String>,
     pub images: Vec<ImageView>,
+    /// Sempre "approved" nas rotas públicas; a fila de moderação usa os outros.
+    pub status: String,
+    pub created_at: NaiveDateTime,
+    pub rejection_reason: Option<String>,
 }
 
 impl OrganizationView {
@@ -31,9 +45,21 @@ impl OrganizationView {
             city: organization.city.clone(),
             uf: organization.uf.clone(),
             email: organization.email.clone(),
-            social: organization.social.clone(),
             about: organization.about.clone(),
+            genres: organization.genres.clone(),
+            address: organization.address.clone(),
+            instagram: organization.instagram.clone(),
+            soundcloud: organization.soundcloud.clone(),
+            bandcamp: organization.bandcamp.clone(),
+            youtube: organization.youtube.clone(),
+            spotify: organization.spotify.clone(),
+            website: organization.website.clone(),
+            is_active: organization.is_active,
+            frequency: organization.frequency.clone(),
             images: ImageView::render_many(images, base_url),
+            status: organization.status.clone(),
+            created_at: organization.created_at,
+            rejection_reason: organization.rejection_reason.clone(),
         }
     }
 

@@ -32,7 +32,12 @@ export default defineConfig(
       ],
       "@typescript-eslint/no-unused-vars": [
         "warn",
-        { argsIgnorePattern: "^_" },
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          // Permite descartar campos com rest: const { senha, ...resto } = obj
+          ignoreRestSiblings: true,
+        },
       ],
       "@typescript-eslint/no-explicit-any": "warn",
       "prettier/prettier": "warn",
