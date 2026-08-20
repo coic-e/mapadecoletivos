@@ -1,66 +1,94 @@
-# Mapeamento de Coletivos de Música Eletrônica no Brasil
+# Mapa de Rave — front-end
 
-![GitHub contributors](https://img.shields.io/github/contributors/lucaoskaique/mapadecoletivos-app)
-![GitHub forks](https://img.shields.io/github/forks/coic-e/mapadecoletivos-app)
-![GitHub stars](https://img.shields.io/github/stars/coic-e/mapadecoletivos-app)
-![GitHub issues](https://img.shields.io/github/issues/coic-e/mapadecoletivos-app)
-![MIT license](https://img.shields.io/github/license/coic-e/mapadecoletivos-app)
-![LinkedIn](https://img.shields.io/badge/-LinkedIn-black.svg?style=flat-square&logo=linkedin&colorB=555)
+Mapa interativo dos coletivos, festas, labels e clubs de música eletrônica do Brasil. Parte do monorepo [mapadecoletivos](../README.md).
 
-## Sobre o Projeto
+## Stack
 
-Este projeto é um mapa interativo feito em React para visualizar coletivos de música eletrônica em todo o Brasil. O projeto é opensource e encorajamos contribuições.
+| Camada | Ferramenta |
+|---|---|
+| Build | Vite 7 + `@vitejs/plugin-react-swc` |
+| UI | React 19 + TypeScript |
+| Estilo | Tailwind v4 + componentes shadcn em `src/components/ui` |
+| Mapa | Leaflet + react-leaflet, tiles do Mapbox |
+| Formulário | react-hook-form + zod |
+| Testes | Vitest + Testing Library |
 
-### Feito Com
+Não há arquivo de CSS por página: tudo é Tailwind, e `src/styles/tailwind.css` guarda só os tokens de cor em `:root` e `.dark`. CSS de terceiros (leaflet) é importado dentro de `layer(base)` para que os utilitários do Tailwind continuem vencendo dele.
 
-O projeto foi criado utilizando as seguintes tecnologias:
+## Rodando
 
-* [React](https://pt-br.reactjs.org/)
-* [Mapbox](https://www.mapbox.com/)
+Requer Node 20+ e a API do monorepo no ar (`docker compose up -d` na raiz).
 
-## Começando
+```bash
+cp .env.example .env
+npm install
+npm start
+```
 
-Siga as instruções abaixo para rodar o projeto localmente.
+O site sobe em `http://localhost:5173` e fala com a API em `http://localhost:8080`.
 
-### Pré-requisitos
+## Variáveis de ambiente
 
-Para rodar o projeto na máquina local, é necessário ter instalado o [Node.js](https://nodejs.org/) e [npm](https://www.npmjs.com/). Verifique se você possui essas ferramentas instaladas antes de prosseguir.
+`.env` é validado por zod na subida — se faltar alguma obrigatória, o Vite aborta com a lista do que falta em vez de quebrar em runtime.
 
-### Instalação
+| Variável | Obrigatória | Para quê |
+|---|---|---|
+| `VITE_USERNAME` | sim | usuário do Mapbox, monta a URL dos tiles |
+| `VITE_STYLE_ID` | sim | id do estilo do mapa no Mapbox |
+| `VITE_ACCESS_TOKEN` | sim | token do Mapbox: tiles e busca de endereço |
+| `VITE_SITE_URL` | em produção | URL absoluta do site; alimenta canonical, Open Graph, `robots.txt` e `sitemap.xml` |
 
-1.  Clone o repositório
-   ```sh
-   git clone https://github.com/lucaoskaique/mapadecoletivos-app.git
-   ```
-2. Instale os pacotes do NPM
-   ```sh
-   yarn install ou npm install
-   ```
-3. Rode o projeto
-   ```sh
-   yarn start ou npm run start
-   ```
+Sem `VITE_SITE_URL`, o build de produção avisa no console e cai em `http://localhost:5173` — o que faz o Google indexar URLs de localhost. Defina no ambiente de deploy.
 
-## Uso
+## Scripts
 
-Este projeto pode ser útil para pessoas interessadas em música eletrônica e para a comunidade de produtores e DJs, ajudando a localizar coletivos e promover colaborações. Você pode contribuir adicionando mais coletivos ao mapa!
+```bash
+npm start          # dev server
+npm run build      # tsc + build de produção em dist/
+npm run serve      # serve o dist/ localmente
+npm test           # vitest em watch
+npm run lint       # eslint, zero warnings tolerados
+npm run format     # prettier
+```
+
+`npm start -- --host` expõe na rede local (repare no `--`, senão o npm engole a flag).
+
+## Estrutura
+
+```
+src/
+├── components/
+│   ├── ui/          # componentes shadcn (button, input, select, form...)
+│   ├── CityScape/   # cidade procedural em WebGL2 do fundo da home
+│   └── Sidebar/
+├── config/env.ts    # variáveis validadas com zod — use isto, não import.meta.env
+├── hooks/useSeo.ts  # título, description e canonical por rota
+├── pages/           # Landing, OrganizationsMap, Organization, CreateOrganization
+├── services/        # api (axios) e geocode (Mapbox)
+└── styles/          # tailwind.css: só tokens
+```
+
+## Rotas
+
+| Rota | Página |
+|---|---|
+| `/` | Landing com a cidade em WebGL |
+| `/raves` | Mapa do Brasil com todos os cadastros |
+| `/raves/:id` | Página de um rolê |
+| `/raves/create` | Formulário de cadastro |
+
+## SEO
+
+`index.html` carrega as meta tags estáticas e `useSeo` ajusta título, descrição e canonical por rota. `robots.txt` e `sitemap.xml` são gerados no build por um plugin do Vite, a partir de `VITE_SITE_URL` — por isso não estão em `public/`, onde arquivos são copiados sem substituição de variável.
+
+**Limitação conhecida:** o app é uma SPA sem SSR. O Google executa JS e indexa normalmente, mas os robôs de preview (WhatsApp, Instagram, Facebook, Twitter) não executam — eles leem só o `index.html`. Compartilhar o link de um rolê específico mostra o preview genérico da home até que as rotas sejam pré-renderizadas. Falta também um `public/og-cover.png` de 1200×630, referenciado pelas tags Open Graph.
 
 ## Contribuindo
 
-Qualquer contribuição que você fizer será **muito apreciada**.
-
-1. Faça um Fork do projeto
-2. Crie a sua Feature Branch (`git checkout -b feature/nomeDoIssue`)
-3. Faça um commit das suas alterações (`git commit -m 'Adicionei uma nova feature'`)
-4. Faça um Push da Branch (`git push origin feature/novaFeature`)
-5. Abra um Pull Request
+1. Faça um fork e crie sua branch (`git checkout -b feat/nome`)
+2. Antes do PR: `npm run lint && npx tsc --noEmit && npx vitest run && npm run build`
+3. Abra o Pull Request
 
 ## Licença
 
-Distribuído sob a licença MIT. Veja `LICENSE` para mais informações.
-
-## Contato
-
-Seu nome - me@lucaskaique.com.br
-
-Link do projeto: [https://github.com/coic-e/mapadecoletivos-app](https://github.com/coic-e/mapadecoletivos-app)
+MIT, herdada do monorepo. O arquivo `LICENSE` ainda não existe — veja o [README da raiz](../README.md).

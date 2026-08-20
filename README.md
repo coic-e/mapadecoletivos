@@ -1,160 +1,95 @@
-# Mapadecoletivos Monorepo
+# Mapa de Rave
 
-A monorepo containing the Mapadecoletivos platform - mapping collectives and community organizations.
+Monorepo do Mapa de Rave: um mapa aberto da cena de música eletrônica brasileira — coletivos, festas, labels, clubs, rádios e produtoras.
 
-## 📁 Project Structure
+## Estrutura
 
 ```
 mapadecoletivos/
-├── mapadecoletivos-api/          # Node.js/TypeScript API (submodule)
-├── mapadecoletivos-app/          # React frontend application (submodule)
-├── mapadecoletivos-api-rust/     # Rust API implementation (submodule)
-├── Cargo.toml                    # Rust workspace configuration
-└── git-commands.sh               # Git submodule management helper
+├── app/              # Front-end React + Vite (o site)
+├── api-rust/         # API em Rust (Actix-web + Diesel) — a API atual
+├── api-types/        # Crate: tipos de resposta da API (views serializadas)
+├── db-types/         # Crate: modelos do banco (Diesel)
+├── api-legada/       # API antiga em Node/TypeORM — mantida só como referência
+├── uploads/          # Imagens enviadas pelo cadastro (bind mount do container)
+├── Cargo.toml        # Workspace Rust (api-rust, api-types, db-types)
+├── Dockerfile        # Build da API Rust; o contexto é a raiz do workspace
+└── docker-compose.yml # Postgres + API Rust
 ```
 
-## 🚀 Getting Started
+> `api-legada/` está congelada e será removida. Nada novo deve ser escrito lá.
 
-### Prerequisites
+## Subindo o ambiente
 
-- **Node.js** (v14+) and npm/yarn
-- **Rust** (latest stable) and Cargo
-- **Git**
-
-### Initial Setup
-
-Clone the repository with all submodules:
+### Banco e API, via Docker
 
 ```bash
-git clone --recursive git@github.com:coic-e/mapadecoletivos.git
-cd mapadecoletivos
+docker compose up -d
 ```
 
-Or if already cloned, initialize submodules:
+Sobe dois serviços:
+
+| Serviço | Container | Porta | Detalhes |
+|---|---|---|---|
+| Postgres 16 | `rave-map-db` | 5432 | usuário `docker`, senha `ravemap`, banco `rave_map` |
+| API Rust | `rave-map-rust-api` | 8080 | espera o healthcheck do banco |
+
+A imagem da API é Debian slim, e não Alpine, porque o Diesel linka com `libpq`.
+
+### Front-end
 
 ```bash
-./git-commands.sh setup
-```
-
-## 🛠️ Development
-
-### Rust Workspace
-
-This is a Cargo workspace for Rust projects. From the root directory:
-
-```bash
-# Build all Rust projects
-cargo build
-
-# Run tests
-cargo test
-
-# Run a specific project
-cargo run -p mapadecoletivos-api-rust
-
-# Check code without building
-cargo check
-
-# Add a dependency to a specific project
-cargo add serde -p mapadecoletivos-api-rust
-```
-
-### Node.js Projects
-
-#### API (TypeScript)
-```bash
-cd mapadecoletivos-api
+cd app
+cp .env.example .env    # preencha as credenciais do Mapbox
 npm install
-npm run dev
+npm start               # http://localhost:5173
 ```
 
-#### Frontend App (React)
-```bash
-cd mapadecoletivos-app
-npm install
-npm start
-```
+O app espera a API em `http://localhost:8080`. Detalhes de variáveis, scripts e stack em [`app/README.md`](app/README.md).
 
-## 📦 Submodule Management
-
-Use the provided `git-commands.sh` script to manage submodules:
+### API fora do Docker
 
 ```bash
-# Initialize and setup all submodules
-./git-commands.sh setup
-
-# Update all submodules to main/master branch
-./git-commands.sh update-main
-
-# Update all submodules to develop branch
-./git-commands.sh update-develop
-
-# Show help
-./git-commands.sh help
+cd api-rust
+cp .env.example .env
+diesel migration run
+cargo run
 ```
 
-### Manual Submodule Commands
+Documentação completa da API — endpoints, payloads, estrutura — em [`api-rust/README.md`](api-rust/README.md).
+
+## Workspace Rust
+
+Os comandos rodam da raiz e valem para os três crates:
 
 ```bash
-# Update all submodules to latest
-git submodule update --remote --recursive
-
-# Pull latest changes in all submodules
-git submodule foreach git pull
-
-# Check status of all submodules
-git submodule status
+cargo build            # compila o workspace
+cargo test             # roda os testes
+cargo check            # checa sem compilar binário
+cargo run -p api-rust  # sobe só a API
+cargo fmt && cargo clippy
 ```
 
-## 🏗️ Architecture
+`api-types` e `db-types` existem para separar o que é modelo de banco do que é resposta HTTP: `db-types` guarda as structs do Diesel, `api-types` guarda as views que a API serializa. O front-end só conhece as segundas.
 
-### mapadecoletivos-api (Node.js)
-- TypeScript backend API
-- TypeORM for database management
-- Express/similar framework
-- PostgreSQL database
+## Fluxo de trabalho
 
-### mapadecoletivos-app (React)
-- React frontend application
-- TypeScript
-- Leaflet for map visualization
-- Responsive design
-
-### mapadecoletivos-api-rust
-- Rust implementation of the API
-- Actix-web framework
-- Modern async runtime
-- High-performance alternative to Node.js API
-
-## 🔗 Repository Links
-
-- Main: [mapadecoletivos](https://github.com/coic-e/mapadecoletivos)
-- API: [mapadecoletivos-api](https://github.com/coic-e/mapadecoletivos-api)
-- App: [mapadecoletivos-app](https://github.com/coic-e/mapadecoletivos-app)
-- Rust API: [mapadecoletivos-api-rust](https://github.com/coic-e/mapadecoletivos-api-rust)
-
-## 📝 Contributing
-
-When working with submodules:
-
-1. Make changes in the respective submodule directory
-2. Commit and push in the submodule repository
-3. Return to the main repository and commit the submodule reference update
+O repositório foi consolidado: `app`, `api-rust` e `api-legada` vivem aqui como diretórios normais. **Não há mais submódulos** — se você seguiu um README antigo falando em `git submodule` ou `git-commands.sh`, esqueça, foi tudo removido.
 
 ```bash
-# Example workflow
-cd mapadecoletivos-api-rust
-git checkout -b feature/new-endpoint
-# ... make changes ...
-git commit -m "Add new endpoint"
-git push origin feature/new-endpoint
-
-cd ..
-git add mapadecoletivos-api-rust
-git commit -m "Update rust api submodule"
-git push
+git checkout -b feat/nome-da-mudanca
+# ... mude o que precisa ...
+git commit
+gh pr create
 ```
 
-## 📄 License
+Antes de abrir PR, no que você mexeu:
 
-See individual project repositories for license information.
+```bash
+cd app && npm run lint && npx tsc --noEmit && npx vitest run && npm run build
+cargo clippy && cargo test
+```
+
+## Licença
+
+MIT — mas o arquivo `LICENSE` ainda não existe no repositório. Vale adicionar antes de divulgar o projeto como open source.
