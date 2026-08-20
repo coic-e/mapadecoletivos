@@ -1,0 +1,27 @@
+# Cabeçalhos de segurança do site estático.
+#
+# Formato lido por Netlify e Cloudflare Pages. Em Nginx, o equivalente está no
+# README — o que não pode é ir ao ar sem eles: a CSP em <meta> do index.html
+# cobre quase tudo, menos frame-ancestors, que só existe como cabeçalho.
+
+/*
+  # Ninguém embute o site num iframe — sem isso, clickjacking no painel de
+  # moderação é um clique de distância.
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+  # O navegador não adivinha o tipo do arquivo.
+  X-Content-Type-Options: nosniff
+  # A URL do site não vaza para terceiros na navegação de saída.
+  Referrer-Policy: strict-origin-when-cross-origin
+  # Só https, por um ano, incluindo subdomínios.
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Permissions-Policy: geolocation=(), camera=(), microphone=(), interest-cohort=()
+  Cross-Origin-Opener-Policy: same-origin
+
+# O HTML nunca fica em cache: é ele que aponta para os bundles com hash.
+/index.html
+  Cache-Control: no-cache
+
+# A área de moderação não entra em índice de busca.
+/admin/*
+  X-Robots-Tag: noindex, nofollow
