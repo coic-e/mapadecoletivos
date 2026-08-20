@@ -1,15 +1,12 @@
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { FiPlus, FiArrowRight } from "react-icons/fi";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import Leaflet from "leaflet";
-import "leaflet/dist/leaflet.css";
 
-import { env } from "../config/env";
-import api from "../services/api";
-
-import "../styles/pages/organizations-map.css";
-import mapMarkerImg from "../images/map-marker.svg";
+import { env } from "@/config/env";
+import api from "@/services/api";
+import mapMarkerImg from "@/images/map-marker.svg";
 
 interface Organization {
   id: number;
@@ -18,9 +15,8 @@ interface Organization {
   name: string;
 }
 
-// Helper function to create icon based on zoom level
 const createScaledIcon = (zoom: number) => {
-  // Base size at zoom level 5, scale from there
+  // O marcador cresce junto com o zoom, a partir do nível 5.
   const baseZoom = 5;
   const baseSize = 30;
   const scale = Math.pow(1.5, zoom - baseZoom);
@@ -34,7 +30,6 @@ const createScaledIcon = (zoom: number) => {
   });
 };
 
-// Component to handle zoom changes
 function ZoomHandler({ onZoomChange }: { onZoomChange: (zoom: number) => void }) {
   const map = useMap();
 
@@ -44,7 +39,6 @@ function ZoomHandler({ onZoomChange }: { onZoomChange: (zoom: number) => void })
     };
 
     map.on("zoomend", handleZoom);
-    // Set initial zoom
     onZoomChange(map.getZoom());
 
     return () => {
@@ -57,7 +51,6 @@ function ZoomHandler({ onZoomChange }: { onZoomChange: (zoom: number) => void })
 
 function OrganizationsMap() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [zoom, setZoom] = useState(5.1);
   const [mapIcon, setMapIcon] = useState(createScaledIcon(5.1));
 
   useEffect(() => {
@@ -70,18 +63,20 @@ function OrganizationsMap() {
     });
   }, []);
 
-  // Update icon when zoom changes
   const handleZoomChange = useCallback((newZoom: number) => {
-    setZoom(newZoom);
     setMapIcon(createScaledIcon(newZoom));
   }, []);
 
   return (
-    <div id="page-map">
-      <aside>
-        <header>
-          <h2>Coletivos de música eletrônica no Brasil</h2>
-          <p>Você sabia que são mais de 260 atores que compõem nosso cenário?</p>
+    <div className="relative flex h-dvh w-screen flex-col bg-background md:flex-row">
+      <aside className="flex w-full flex-col justify-center gap-6 bg-background p-6 md:min-w-80 md:max-w-90 md:justify-center md:p-10 lg:min-w-95 lg:max-w-110">
+        <header className="flex flex-col items-center gap-4 text-center md:items-start md:text-left">
+          <h2 className="font-display text-[clamp(24px,4vw,34px)] leading-tight tracking-wide text-foreground uppercase">
+            Coletivos de música eletrônica no Brasil
+          </h2>
+          <p className="font-sans text-[clamp(13px,2.5vw,16px)] leading-snug text-muted-foreground">
+            Você sabia que são mais de 260 atores que compõem nosso cenário?
+          </p>
         </header>
       </aside>
 
@@ -96,10 +91,7 @@ function OrganizationsMap() {
           [90, 180],
         ]}
         maxBoundsViscosity={1.0}
-        style={{
-          width: "100%",
-          height: "100%",
-        }}
+        className="z-5 min-h-100 w-full flex-1 bg-neutral-900 [&_.leaflet-tile]:bg-neutral-900 [&_.leaflet-tile-pane]:bg-neutral-900"
       >
         <ZoomHandler onZoomChange={handleZoomChange} />
         <TileLayer
@@ -107,26 +99,39 @@ function OrganizationsMap() {
           url={`https://api.mapbox.com/styles/v1/${env.VITE_USERNAME}/${env.VITE_STYLE_ID}/tiles/256/{z}/{x}/{y}@2x?access_token=${env.VITE_ACCESS_TOKEN}`}
           noWrap={true}
         />
-        {organizations.map((organization) => {
-          return (
-            <Marker
-              icon={mapIcon}
-              position={[organization.latitude, organization.longitude]}
-              key={organization.id}
+
+        {organizations.map((organization) => (
+          <Marker
+            icon={mapIcon}
+            position={[organization.latitude, organization.longitude]}
+            key={organization.id}
+          >
+            <Popup
+              closeButton={false}
+              minWidth={240}
+              maxWidth={240}
+              className="[&_.leaflet-popup-content-wrapper]:rounded-lg [&_.leaflet-popup-content-wrapper]:bg-card/95 [&_.leaflet-popup-content-wrapper]:shadow-xl [&_.leaflet-popup-content-wrapper]:backdrop-blur-sm [&_.leaflet-popup-content]:m-0 [&_.leaflet-popup-content]:flex [&_.leaflet-popup-content]:items-center [&_.leaflet-popup-content]:justify-between [&_.leaflet-popup-content]:gap-4 [&_.leaflet-popup-content]:px-4 [&_.leaflet-popup-content]:py-3 [&_.leaflet-popup-content]:font-sans [&_.leaflet-popup-content]:text-base [&_.leaflet-popup-content]:font-semibold [&_.leaflet-popup-content]:text-card-foreground [&_.leaflet-popup-tip-container]:hidden"
             >
-              <Popup closeButton={false} minWidth={240} maxWidth={240} className="map-popup">
-                {organization.name}
-                <Link to={`/raves/${organization.id}`}>
-                  <FiArrowRight size={20} color="#FFF" />
-                </Link>
-              </Popup>
-            </Marker>
-          );
-        })}
+              {organization.name}
+
+              <Link
+                to={`/raves/${organization.id}`}
+                aria-label={`Ver ${organization.name}`}
+                className="flex size-10 min-w-10 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105"
+              >
+                <FiArrowRight size={20} />
+              </Link>
+            </Popup>
+          </Marker>
+        ))}
       </MapContainer>
 
-      <Link to="/raves/create" className="create-organization">
-        <FiPlus size={32} color="#FFF" />
+      <Link
+        to="/raves/create"
+        aria-label="Cadastrar rolê"
+        className="absolute right-5 bottom-5 z-10 flex size-13 items-center justify-center rounded-full border-2 border-primary bg-primary text-primary-foreground shadow-lg transition-all hover:-translate-y-0.5 hover:bg-background hover:text-foreground md:right-10 md:bottom-10 md:size-16"
+      >
+        <FiPlus size={28} />
       </Link>
     </div>
   );

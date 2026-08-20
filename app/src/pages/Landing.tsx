@@ -1,91 +1,92 @@
-import React, { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { FiArrowRight } from "react-icons/fi";
 import { Link } from "react-router-dom";
-import gsap from "gsap";
-import HorseAnimation from "../components/HorseAnimation";
 
-import "../styles/pages/landing.css";
+import CityScape from "@/components/CityScape";
+
+const TITLE = "MAPA DE RAVE";
+const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*";
+const SCRAMBLE_DURATION = 2000;
 
 function Landing() {
   const titleRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    if (!titleRef.current) return;
+    const title = titleRef.current;
 
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*";
-    const originalText = "MAPA DE RAVE";
-    let currentText = originalText;
+    if (!title) return;
 
-    const scramble = () => {
-      const timeline = gsap.timeline();
-      const duration = 2;
-      const steps = 20;
+    let frame: number;
+    let start: number | null = null;
 
-      for (let i = 0; i <= steps; i++) {
-        timeline.to(
-          {},
-          {
-            duration: duration / steps,
-            onStart: () => {
-              if (!titleRef.current) return;
-              
-              const progress = i / steps;
-              const scrambledText = originalText
-                .split("")
-                .map((char, index) => {
-                  if (char === " ") return " ";
-                  
-                  // Gradually reveal characters from left to right
-                  const charProgress = index / originalText.length;
-                  if (progress > charProgress + 0.2) {
-                    return char;
-                  } else if (progress < charProgress - 0.2) {
-                    return chars[Math.floor(Math.random() * chars.length)];
-                  } else {
-                    // In the transition zone, randomly show correct char
-                    return Math.random() > 0.5 
-                      ? char 
-                      : chars[Math.floor(Math.random() * chars.length)];
-                  }
-                })
-                .join("");
-              
-              currentText = scrambledText;
-              titleRef.current.textContent = currentText;
-            },
-          }
-        );
+    const scramble = (timestamp: number) => {
+      if (start === null) {
+        start = timestamp;
       }
 
-      // Ensure final text is correct
-      timeline.call(() => {
-        if (titleRef.current) {
-          titleRef.current.textContent = originalText;
-        }
-      });
+      const progress = Math.min((timestamp - start) / SCRAMBLE_DURATION, 1);
 
-      return timeline;
+      title.textContent = TITLE.split("")
+        .map((char, index) => {
+          if (char === " ") return " ";
+
+          // Revela os caracteres da esquerda para a direita.
+          const charProgress = index / TITLE.length;
+
+          if (progress > charProgress + 0.2) return char;
+
+          if (progress < charProgress - 0.2) {
+            return SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+          }
+
+          return Math.random() > 0.5
+            ? char
+            : SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+        })
+        .join("");
+
+      if (progress < 1) {
+        frame = requestAnimationFrame(scramble);
+      } else {
+        title.textContent = TITLE;
+      }
     };
 
-    // Run scramble effect on mount
-    const tl = scramble();
+    frame = requestAnimationFrame(scramble);
 
     return () => {
-      tl.kill();
+      cancelAnimationFrame(frame);
     };
   }, []);
 
   return (
-    <div id="page-landing">
-      <HorseAnimation />
-      <div className="content-wrapper">
-        <main>
-          <h1 ref={titleRef}>MAPA DE RAVE</h1>
-          <p>Descubra a Batida do Underground</p>
+    <div className="relative flex h-dvh w-screen items-center justify-center overflow-hidden bg-black text-center">
+      <CityScape />
+
+      {/* pointer-events-none deixa o mouse chegar no canvas e mover a cidade. */}
+      <div className="pointer-events-none relative z-10 flex max-w-full flex-col items-center gap-10 p-8">
+        <main className="flex flex-col items-center gap-6">
+          <h1
+            ref={titleRef}
+            className="m-0 font-display text-[clamp(32px,12vw,80px)] leading-none tracking-wider break-words text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.85)]"
+          >
+            {TITLE}
+          </h1>
+
+          <p className="m-0 max-w-[90%] font-sans text-[clamp(14px,4vw,20px)] leading-snug font-semibold text-white/80 drop-shadow-[0_2px_12px_rgba(0,0,0,0.85)]">
+            Descubra a Batida do Underground
+          </p>
         </main>
 
-        <Link to="/raves" className="enter-app">
-          <FiArrowRight size={26} color="#ffffff" />
+        <Link
+          to="/raves"
+          className="group pointer-events-auto inline-flex items-center gap-3 rounded-full border border-white/35 bg-white/8 px-7 py-3.5 font-display text-lg tracking-[0.18em] whitespace-nowrap text-white uppercase no-underline backdrop-blur-md transition-colors hover:border-white/70 hover:bg-white/16 sm:px-6 sm:py-3"
+        >
+          <span>Entrar no mapa</span>
+          <FiArrowRight
+            size={20}
+            className="transition-transform duration-300 group-hover:translate-x-1"
+          />
         </Link>
       </div>
     </div>
