@@ -80,7 +80,7 @@ const GLOW_COLORS = [
   [1.0, 1.0, 1.0], // strobe
 ];
 
-const GLOW_BPM = 128;
+const GLOW_BPM = 52;
 const GLOW_VENUE_RATIO = 0.09;
 
 /** Alpha gravado nos pixels de janela; parede fica em 255. Ver createWallTexture. */
