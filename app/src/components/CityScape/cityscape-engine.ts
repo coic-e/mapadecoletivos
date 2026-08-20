@@ -1,9 +1,12 @@
 /**
  * Infinite procedural city — WebGL2.
  *
- * Port of the CodePen "Endless city" by Niklas Knaack
- * (https://codepen.io/NiklasKnaack/pen/rNEwYWZ), adapted to run inside a
- * container element with an explicit teardown instead of taking over the page.
+ * Original work: Copyright (c) Niklas Knaack — https://www.niklasknaack.de/
+ * Source: https://codepen.io/NiklasKnaack/pen/rNEwYWZ (CodePen default: MIT).
+ * Attribution is kept here, in the source, as the license requires.
+ *
+ * Adapted to run inside a container element with an explicit teardown instead
+ * of taking over the page, and extended with the neon venue lights.
  */
 
 type Point = { x: number; y: number };

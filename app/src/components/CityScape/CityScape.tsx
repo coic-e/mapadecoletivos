@@ -28,15 +28,6 @@ const CityScape = () => {
         aria-hidden="true"
         className="size-full [&>canvas]:block [&>canvas]:size-full [&>canvas]:touch-none"
       />
-
-      <a
-        href="https://www.niklasknaack.de/"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="absolute right-4 bottom-4 z-20 font-sans text-xs tracking-wide text-white/45 no-underline transition-colors hover:text-white/90"
-      >
-        cidade 3D por Niklas Knaack
-      </a>
     </div>
   );
 };
