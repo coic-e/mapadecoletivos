@@ -30,6 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import api from "@/services/api";
 import { env } from "@/config/env";
 import mapIcon from "@/utils/mapIcon";
+import { useSeo } from "@/hooks/useSeo";
 
 import {
   ABOUT_MAX_LENGTH,
@@ -93,6 +94,14 @@ interface ImagePreview {
 
 function CreateOrganization() {
   const navigate = useNavigate();
+
+  useSeo({
+    title: "Cadastrar seu rolê no mapa | Mapa de Rave",
+    description:
+      "Coloque seu coletivo, festa, label ou club no Mapa de Rave. Leva menos de dois minutos.",
+    path: "/raves/create",
+    noIndex: true,
+  });
 
   const [map, setMap] = useState<LeafletMap | null>(null);
   const [images, setImages] = useState<ImagePreview[]>([]);

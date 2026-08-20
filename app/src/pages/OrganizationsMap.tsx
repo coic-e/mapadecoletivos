@@ -7,6 +7,7 @@ import Leaflet from "leaflet";
 import { env } from "@/config/env";
 import api from "@/services/api";
 import mapMarkerImg from "@/images/map-marker.svg";
+import { useSeo } from "@/hooks/useSeo";
 
 interface Organization {
   id: number;
@@ -51,6 +52,13 @@ function ZoomHandler({ onZoomChange }: { onZoomChange: (zoom: number) => void })
 
 function OrganizationsMap() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
+
+  useSeo({
+    title: "Mapa dos coletivos de música eletrônica do Brasil | Mapa de Rave",
+    description:
+      "Navegue pelo mapa e descubra festas, coletivos, labels, clubs, rádios e produtoras de música eletrônica espalhados pelo Brasil.",
+    path: "/raves",
+  });
   const [mapIcon, setMapIcon] = useState(createScaledIcon(5.1));
 
   useEffect(() => {

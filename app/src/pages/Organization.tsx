@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import mapIcon from "@/utils/mapIcon";
 import api from "@/services/api";
 import { cn } from "@/lib/utils";
+import { useSeo } from "@/hooks/useSeo";
 
 interface IOrganization {
   id: number;
@@ -49,6 +50,17 @@ function Organization() {
         console.error("Error fetching organization:", error);
       });
   }, [params.id]);
+
+  // Chamado antes do early return: hook não pode ficar atrás de condicional.
+  useSeo({
+    title: organization
+      ? `${organization.name} — ${organization.type} em ${organization.city}/${organization.uf} | Mapa de Rave`
+      : "Carregando… | Mapa de Rave",
+    description: organization
+      ? organization.about.slice(0, 155)
+      : "Perfil de um coletivo de música eletrônica no Mapa de Rave.",
+    path: `/raves/${params.id}`,
+  });
 
   if (!organization) {
     return (

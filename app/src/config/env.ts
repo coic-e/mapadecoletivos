@@ -8,6 +8,8 @@ const envSchema = z.object({
   VITE_USERNAME: z.string().min(1, "VITE_USERNAME is required"),
   VITE_STYLE_ID: z.string().min(1, "VITE_STYLE_ID is required"),
   VITE_ACCESS_TOKEN: z.string().min(1, "VITE_ACCESS_TOKEN is required"),
+  /** URL absoluta do site, usada em canonical e Open Graph. Opcional em dev. */
+  VITE_SITE_URL: z.string().default(""),
 });
 
 type EnvSchema = z.infer<typeof envSchema>;
@@ -22,6 +24,7 @@ function validateEnv(): EnvSchema {
       VITE_USERNAME: import.meta.env.VITE_USERNAME,
       VITE_STYLE_ID: import.meta.env.VITE_STYLE_ID,
       VITE_ACCESS_TOKEN: import.meta.env.VITE_ACCESS_TOKEN,
+      VITE_SITE_URL: import.meta.env.VITE_SITE_URL,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

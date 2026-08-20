@@ -3,6 +3,7 @@ import { FiArrowRight } from "react-icons/fi";
 import { Link } from "react-router-dom";
 
 import CityScape from "@/components/CityScape";
+import { useSeo } from "@/hooks/useSeo";
 
 const TITLE = "MAPA DE RAVE";
 const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%^&*";
@@ -10,6 +11,13 @@ const SCRAMBLE_DURATION = 2000;
 
 function Landing() {
   const titleRef = useRef<HTMLHeadingElement>(null);
+
+  useSeo({
+    title: "Mapa de Rave — coletivos, festas e labels de música eletrônica no Brasil",
+    description:
+      "O mapa da música eletrônica brasileira: encontre coletivos, festas, labels, clubs e produtoras perto de você, ou coloque o seu rolê no mapa.",
+    path: "/",
+  });
 
   useEffect(() => {
     const title = titleRef.current;

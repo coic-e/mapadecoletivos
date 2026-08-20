@@ -3,9 +3,17 @@
 import { Link, useRouteError } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { useSeo } from "@/hooks/useSeo";
 
 export default function RootError(): React.JSX.Element {
   const err = useRouteError() as RouteError;
+
+  useSeo({
+    title: "Página não encontrada | Mapa de Rave",
+    description: "Essa página não existe ou saiu do ar.",
+    path: "/",
+    noIndex: true,
+  });
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-background px-6">
