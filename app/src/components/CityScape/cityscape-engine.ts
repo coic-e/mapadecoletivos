@@ -33,6 +33,7 @@ interface Dot extends Vertex {
 
 interface Cube {
   distance: number;
+  glow: number;
   topLeftFront: Vertex;
   topRightFront: Vertex;
   bottomRightFront: Vertex;
@@ -63,21 +64,66 @@ export interface CityScape {
   destroy: () => void;
 }
 
+/**
+ * Prédios sorteados como "pista" acendem as janelas em cor neon, pulsando no
+ * tempo. A cor vem desta paleta; a fase decide em que ponto da batida cada
+ * prédio está, para a cidade não piscar toda junta.
+ */
+const GLOW_COLORS = [
+  [1.0, 0.176, 0.584], // magenta
+  [0.0, 0.898, 1.0], // ciano
+  [0.486, 1.0, 0.176], // lima
+  [1.0, 0.702, 0.0], // âmbar
+  [0.616, 0.302, 1.0], // violeta
+  [1.0, 0.231, 0.188], // vermelho
+  [0.176, 0.482, 1.0], // azul
+  [1.0, 1.0, 1.0], // strobe
+];
+
+const GLOW_BPM = 128;
+const GLOW_VENUE_RATIO = 0.09;
+
+/** Alpha gravado nos pixels de janela; parede fica em 255. Ver createWallTexture. */
+const WINDOW_ALPHA = 160;
+
 const vertexCode = `#version 300 es
 
     in vec2 a_position;
     in vec2 a_texcoord;
     in float a_layer;
+    in float a_glow;
 
     uniform vec2 u_resolution;
+    uniform float u_time;
+    uniform vec3 u_glowColors[${GLOW_COLORS.length}];
+
+    const float BEATS_PER_SECOND = ${(GLOW_BPM / 60).toFixed(5)};
 
     out vec2 v_texcoord;
     out float v_layer;
+    out vec3 v_glowColor;
+    out float v_glowIntensity;
 
     void main(void) {
 
         v_texcoord = a_texcoord;
         v_layer = a_layer;
+
+        // a_glow packs two values: integer part = color index + 1
+        // (0 = ordinary building), fractional part = phase within the beat.
+        v_glowColor = vec3(0.0);
+        v_glowIntensity = 0.0;
+
+        if (a_glow > 0.5) {
+
+            int colorIndex = int(floor(a_glow)) - 1;
+            float phase = fract(a_glow);
+            float beat = fract(u_time * BEATS_PER_SECOND + phase);
+
+            v_glowColor = u_glowColors[colorIndex];
+            v_glowIntensity = mix(0.35, 1.0, pow(1.0 - beat, 3.0));
+
+        }
 
         vec2 pos2d = a_position.xy;
         vec2 zeroToOne = pos2d / u_resolution;
@@ -92,11 +138,13 @@ const vertexCode = `#version 300 es
 
 const fragmentCode = `#version 300 es
 
-    precision lowp float;
-    precision lowp sampler2DArray;
+    precision mediump float;
+    precision mediump sampler2DArray;
 
     in vec2 v_texcoord;
     in float v_layer;
+    in vec3 v_glowColor;
+    in float v_glowIntensity;
 
     uniform sampler2DArray u_textureArray;
 
@@ -104,7 +152,17 @@ const fragmentCode = `#version 300 es
 
     void main(void) {
 
-        fragColor = texture(u_textureArray, vec3(v_texcoord, v_layer));
+        vec4 texel = texture(u_textureArray, vec3(v_texcoord, v_layer));
+
+        // The texture alpha is the window mask: wall is 1.0 and window is
+        // ${(WINDOW_ALPHA / 255).toFixed(3)}. Roofs and streets are fully 1.0, so they never light up.
+        float windowMask = 1.0 - smoothstep(${((WINDOW_ALPHA / 255 + 1) / 2).toFixed(3)}, 0.97, texel.a);
+
+        vec3 color = mix(texel.rgb, v_glowColor, windowMask * v_glowIntensity);
+
+        // Alpha pinned to 1: the canvas is composited over the page and the
+        // texture alpha here is a mask, not transparency.
+        fragColor = vec4(color, 1.0);
 
     }
 
@@ -236,15 +294,20 @@ export function createCityScape(container: HTMLElement): CityScape {
   let webglFaces: number[] = [];
   let webglUvs: number[] = [];
   let webglLayers: number[] = [];
+  let webglGlow: number[] = [];
 
   let positionAttributeLocation = 0;
   let texcoordAttributeLocation = 0;
   let layerAttributeLocation = 0;
+  let glowAttributeLocation = 0;
   let resolutionUniformLocation: WebGLUniformLocation | null = null;
+  let timeUniformLocation: WebGLUniformLocation | null = null;
+  let glowColorsUniformLocation: WebGLUniformLocation | null = null;
 
   let positionBuffer: WebGLBuffer | null = null;
   let uvBuffer: WebGLBuffer | null = null;
   let layerBuffer: WebGLBuffer | null = null;
+  let glowBuffer: WebGLBuffer | null = null;
   let indexBuffer: WebGLBuffer | null = null;
   let textureArray: WebGLTexture | null = null;
 
@@ -349,19 +412,25 @@ export function createCityScape(container: HTMLElement): CityScape {
     positionAttributeLocation = gl!.getAttribLocation(shaderProgram!, "a_position");
     texcoordAttributeLocation = gl!.getAttribLocation(shaderProgram!, "a_texcoord");
     layerAttributeLocation = gl!.getAttribLocation(shaderProgram!, "a_layer");
+    glowAttributeLocation = gl!.getAttribLocation(shaderProgram!, "a_glow");
     resolutionUniformLocation = gl!.getUniformLocation(shaderProgram!, "u_resolution");
+    timeUniformLocation = gl!.getUniformLocation(shaderProgram!, "u_time");
+    glowColorsUniformLocation = gl!.getUniformLocation(shaderProgram!, "u_glowColors");
 
     gl!.enableVertexAttribArray(positionAttributeLocation);
     gl!.enableVertexAttribArray(texcoordAttributeLocation);
     gl!.enableVertexAttribArray(layerAttributeLocation);
+    gl!.enableVertexAttribArray(glowAttributeLocation);
 
     gl!.uniform2f(resolutionUniformLocation, w, h);
+    gl!.uniform3fv(glowColorsUniformLocation, GLOW_COLORS.flat());
 
     //---
 
     positionBuffer = positionBuffer ?? gl!.createBuffer();
     uvBuffer = uvBuffer ?? gl!.createBuffer();
     layerBuffer = layerBuffer ?? gl!.createBuffer();
+    glowBuffer = glowBuffer ?? gl!.createBuffer();
     indexBuffer = indexBuffer ?? gl!.createBuffer();
 
     //---
@@ -373,6 +442,7 @@ export function createCityScape(container: HTMLElement): CityScape {
     webglFaces = [];
     webglUvs = [];
     webglLayers = [];
+    webglGlow = [];
 
     //---
 
@@ -673,6 +743,7 @@ export function createCityScape(container: HTMLElement): CityScape {
       width: number;
       height: number;
       depth: number;
+      glow: number;
     }[] = [];
 
     for (let i = 0; i < gridBuildingTileSizes.length; i++) {
@@ -715,6 +786,7 @@ export function createCityScape(container: HTMLElement): CityScape {
               width: gridBuildingTileSize.x,
               height: gridBuildingTileSize.y,
               depth: dot.depth,
+              glow: pickVenueGlow(),
             });
           }
         }
@@ -734,6 +806,7 @@ export function createCityScape(container: HTMLElement): CityScape {
               width: 1,
               height: 1,
               depth: dot.depth,
+              glow: pickVenueGlow(),
             });
           }
         }
@@ -743,7 +816,7 @@ export function createCityScape(container: HTMLElement): CityScape {
     for (let i = 0; i < buildingHolder.length; i++) {
       const building = buildingHolder[i];
 
-      addTile(building.dots, building.width, building.height, "building");
+      addTile(building.dots, building.width, building.height, "building", building.glow);
     }
 
     //---
@@ -797,6 +870,21 @@ export function createCityScape(container: HTMLElement): CityScape {
     }
 
     return dotsInUse;
+  }
+
+  /**
+   * Sorteia se o prédio é uma pista e devolve o valor empacotado que vai para
+   * o atributo a_glow: 0 para prédio comum, senão (índice da cor + 1) somado à
+   * fase dentro da batida. Ver o vertex shader.
+   */
+  function pickVenueGlow() {
+    if (Math.random() > GLOW_VENUE_RATIO) {
+      return 0;
+    }
+
+    const colorIndex = Math.floor(Math.random() * GLOW_COLORS.length);
+
+    return colorIndex + 1 + Math.random() * 0.999;
   }
 
   function arrayShuffle(array: number[]) {
@@ -861,7 +949,8 @@ export function createCityScape(container: HTMLElement): CityScape {
     gridTileDots: Dot[],
     width: number,
     height: number,
-    type: "street" | "building"
+    type: "street" | "building",
+    glow = 0
   ) {
     if (type === "street") {
       const dot = gridTileDots[0];
@@ -1215,6 +1304,8 @@ export function createCityScape(container: HTMLElement): CityScape {
       const depth = dot.depth;
 
       const cube = {} as Cube;
+
+      cube.glow = glow;
 
       const dTL = dot;
       const dTR = dot.neighborRight;
@@ -1624,10 +1715,11 @@ export function createCityScape(container: HTMLElement): CityScape {
     v2: Vertex,
     v3: Vertex,
     uvCoords: Point[],
-    layer: number
+    layer: number,
+    glow: number
   ) {
-    drawTriangle(v0, v1, v2, uvCoords[0], uvCoords[1], uvCoords[2], layer);
-    drawTriangle(v2, v3, v0, uvCoords[2], uvCoords[3], uvCoords[0], layer);
+    drawTriangle(v0, v1, v2, uvCoords[0], uvCoords[1], uvCoords[2], layer, glow);
+    drawTriangle(v2, v3, v0, uvCoords[2], uvCoords[3], uvCoords[0], layer, glow);
   }
 
   function drawTriangle(
@@ -1637,7 +1729,8 @@ export function createCityScape(container: HTMLElement): CityScape {
     uv0: Point,
     uv1: Point,
     uv2: Point,
-    layer: number
+    layer: number,
+    glow: number
   ) {
     webglVertices.push(v0.x2d, v0.y2d);
     webglVertices.push(v1.x2d, v1.y2d);
@@ -1656,6 +1749,10 @@ export function createCityScape(container: HTMLElement): CityScape {
     webglLayers.push(layer);
     webglLayers.push(layer);
     webglLayers.push(layer);
+
+    webglGlow.push(glow);
+    webglGlow.push(glow);
+    webglGlow.push(glow);
   }
 
   function sortCubes() {
@@ -1678,11 +1775,14 @@ export function createCityScape(container: HTMLElement): CityScape {
     gridCubeHolder = gridCubeHolder.sort((a, b) => b.distance - a.distance);
   }
 
-  function render() {
+  function render(timestamp = 0) {
     webglVertices = [];
     webglFaces = [];
     webglUvs = [];
     webglLayers = [];
+    webglGlow = [];
+
+    gl!.uniform1f(timeUniformLocation, timestamp * 0.001);
 
     //---
 
@@ -1737,7 +1837,7 @@ export function createCityScape(container: HTMLElement): CityScape {
         projectPoint(v2);
         projectPoint(v3);
 
-        drawFace(v0, v1, v2, v3, street.uvCoords, street.faceLayer);
+        drawFace(v0, v1, v2, v3, street.uvCoords, street.faceLayer, 0);
       }
     }
 
@@ -1791,7 +1891,7 @@ export function createCityScape(container: HTMLElement): CityScape {
             projectPoint(v2);
             projectPoint(v3);
 
-            drawFace(v0, v1, v2, v3, cube.uvCoords[j], cube.faceLayers[j]);
+            drawFace(v0, v1, v2, v3, cube.uvCoords[j], cube.faceLayers[j], cube.glow);
           }
         }
       }
@@ -1810,6 +1910,10 @@ export function createCityScape(container: HTMLElement): CityScape {
     gl!.bindBuffer(gl!.ARRAY_BUFFER, layerBuffer);
     gl!.bufferData(gl!.ARRAY_BUFFER, new Float32Array(webglLayers), gl!.DYNAMIC_DRAW);
     gl!.vertexAttribPointer(layerAttributeLocation, 1, gl!.FLOAT, false, 0, 0);
+
+    gl!.bindBuffer(gl!.ARRAY_BUFFER, glowBuffer);
+    gl!.bufferData(gl!.ARRAY_BUFFER, new Float32Array(webglGlow), gl!.DYNAMIC_DRAW);
+    gl!.vertexAttribPointer(glowAttributeLocation, 1, gl!.FLOAT, false, 0, 0);
 
     gl!.bindBuffer(gl!.ELEMENT_ARRAY_BUFFER, indexBuffer);
     gl!.bufferData(gl!.ELEMENT_ARRAY_BUFFER, new Uint32Array(webglFaces), gl!.DYNAMIC_DRAW);
@@ -2629,6 +2733,24 @@ export function createCityScape(container: HTMLElement): CityScape {
       }
     }
 
+    // Grava a máscara de janela no canal alpha: o que não ficou exatamente na
+    // cor da parede é janela (as bordas suavizadas entram como meio-termo, o
+    // que ajuda). O alpha está livre para isso porque o blending está
+    // desligado e o fragment shader devolve alpha 1 de qualquer jeito.
+    const maskData = context.getImageData(0, 0, w, h);
+    const mask = maskData.data;
+
+    for (let i = 0, l = mask.length; i < l; i += 4) {
+      const distanceToWall =
+        Math.abs(mask[i] - colorWall.r) +
+        Math.abs(mask[i + 1] - colorWall.g) +
+        Math.abs(mask[i + 2] - colorWall.b);
+
+      mask[i + 3] = distanceToWall < 12 ? 255 : WINDOW_ALPHA;
+    }
+
+    context.putImageData(maskData, 0, 0);
+
     return imageFromCanvas(wallCanvas);
   }
 
@@ -2645,6 +2767,10 @@ export function createCityScape(container: HTMLElement): CityScape {
     gl!.linkProgram(program);
     gl!.useProgram(program);
 
+    if (!gl!.getProgramParameter(program, gl!.LINK_STATUS)) {
+      console.error("CityScape: link do programa WebGL falhou\n" + gl!.getProgramInfoLog(program));
+    }
+
     return program;
   }
 
@@ -2653,6 +2779,10 @@ export function createCityScape(container: HTMLElement): CityScape {
 
     gl!.shaderSource(shader, shaderCode);
     gl!.compileShader(shader);
+
+    if (!gl!.getShaderParameter(shader, gl!.COMPILE_STATUS)) {
+      console.error("CityScape: shader nao compilou\n" + gl!.getShaderInfoLog(shader));
+    }
 
     return shader;
   }
@@ -2736,6 +2866,7 @@ export function createCityScape(container: HTMLElement): CityScape {
     gl!.deleteBuffer(positionBuffer);
     gl!.deleteBuffer(uvBuffer);
     gl!.deleteBuffer(layerBuffer);
+    gl!.deleteBuffer(glowBuffer);
     gl!.deleteBuffer(indexBuffer);
     gl!.deleteTexture(textureArray);
     gl!.deleteProgram(shaderProgram);
