@@ -1,293 +1,548 @@
-import React, { ChangeEvent, useState } from "react";
-import { FiPlus, FiXSquare } from "react-icons/fi";
-import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
-import "../styles/pages/create-organization.css";
-import mapIcon from "../utils/mapIcon";
-import Sidebar from "../components/Sidebar/Sidebar";
-import api from "../services/api";
-import { env } from "../config/env";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
+import type { Map as LeafletMap } from "leaflet";
+import { AlertCircle, Crosshair, Loader2, Plus, X } from "lucide-react";
 
-interface Option {
-  value: string;
-  label: string;
-}
+import Sidebar from "@/components/Sidebar/Sidebar";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import api from "@/services/api";
+import { env } from "@/config/env";
+import mapIcon from "@/utils/mapIcon";
 
-const optionsUf: Option[] = [
-  { value: "AL", label: "AL" },
-  { value: "AP", label: "AP" },
-  { value: "AM", label: "AM" },
-  { value: "BA", label: "BA" },
-  { value: "CE", label: "CE" },
-  { value: "DF", label: "DF" },
-  { value: "ES", label: "ES" },
-  { value: "GO", label: "GO" },
-  { value: "MA", label: "MA" },
-  { value: "MT", label: "MT" },
-  { value: "MS", label: "MS" },
-  { value: "MG", label: "MG" },
-  { value: "PA", label: "PA" },
-  { value: "PB", label: "PB" },
-  { value: "PR", label: "PR" },
-  { value: "PE", label: "PE" },
-  { value: "PI", label: "PI" },
-  { value: "RJ", label: "RJ" },
-  { value: "RN", label: "RN" },
-  { value: "RS", label: "RS" },
-  { value: "RO", label: "RO" },
-  { value: "RR", label: "RR" },
-  { value: "SC", label: "SC" },
-  { value: "SP", label: "SP" },
-  { value: "SE", label: "SE" },
-  { value: "TO", label: "TO" },
+import {
+  ABOUT_MAX_LENGTH,
+  createOrganizationSchema,
+  type CreateOrganizationValues,
+} from "./create-organization.schema";
+
+const UF_OPTIONS = [
+  "AC",
+  "AL",
+  "AP",
+  "AM",
+  "BA",
+  "CE",
+  "DF",
+  "ES",
+  "GO",
+  "MA",
+  "MT",
+  "MS",
+  "MG",
+  "PA",
+  "PB",
+  "PR",
+  "PE",
+  "PI",
+  "RJ",
+  "RN",
+  "RS",
+  "RO",
+  "RR",
+  "SC",
+  "SP",
+  "SE",
+  "TO",
 ];
 
-const raveTypeOptions = [
-  "Festa",
-  "Festival",
-  "Label",
-  "Radio",
-  "Podcast",
-  "Coletivo",
-  "Nucleo",
-  "Club",
-  "Bar",
-  "Produtora",
-  "outro",
+const TYPE_OPTIONS = [
+  { value: "Festa", label: "Festa" },
+  { value: "Festival", label: "Festival" },
+  { value: "Label", label: "Label" },
+  { value: "Radio", label: "Rádio" },
+  { value: "Podcast", label: "Podcast" },
+  { value: "Coletivo", label: "Coletivo" },
+  { value: "Nucleo", label: "Núcleo" },
+  { value: "Club", label: "Club" },
+  { value: "Bar", label: "Bar" },
+  { value: "Produtora", label: "Produtora" },
+  { value: "outro", label: "Outro" },
 ];
 
-interface FormData {
-  name: string;
-  about: string;
-  email: string;
-  uf: string;
-  city: string;
-  type: string;
-  latitude: string;
-  longitude: string;
-  social: string;
-  images?: File[];
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const DEFAULT_CENTER: [number, number] = [-30.0313778, -51.2256725];
+
+type FormValues = CreateOrganizationValues;
+
+interface ImagePreview {
+  file: File;
+  preview: string;
 }
 
 function CreateOrganization() {
-  const [formData, setFormData] = useState<FormData>({
-    name: "",
-    about: "",
-    email: "",
-    uf: "",
-    city: "",
-    type: "",
-    latitude: "",
-    longitude: "",
-    social: "",
-    images: [],
+  const navigate = useNavigate();
+
+  const [map, setMap] = useState<LeafletMap | null>(null);
+  const [images, setImages] = useState<ImagePreview[]>([]);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [locating, setLocating] = useState(false);
+
+  // As object URLs precisam ser revogadas na saída da página, senão cada foto
+  // adicionada fica retida em memória até o reload.
+  const imagesRef = useRef<ImagePreview[]>([]);
+  imagesRef.current = images;
+
+  useEffect(() => {
+    return () => {
+      imagesRef.current.forEach((image) => URL.revokeObjectURL(image.preview));
+    };
+  }, []);
+
+  const form = useForm<FormValues>({
+    resolver: zodResolver(createOrganizationSchema),
+    mode: "onBlur",
+    defaultValues: {
+      name: "",
+      about: "",
+      email: "",
+      social: "",
+      uf: "",
+      city: "",
+      type: "",
+      latitude: "",
+      longitude: "",
+    },
   });
 
-  const [images, setImages] = useState<File[]>([]);
-  const [previewImages, setPreviewImages] = useState<string[]>([]);
+  const aboutLength = form.watch("about").length;
+  const latitude = form.watch("latitude");
+  const longitude = form.watch("longitude");
+  const hasPosition = latitude !== "" && longitude !== "";
 
-  const handleInputChange = (
-    event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
-  ) => {
-    const { name, value } = event.target;
-    setFormData({ ...formData, [name]: value });
+  const setPosition = (lat: number, lng: number) => {
+    form.setValue("latitude", lat.toString(), { shouldValidate: true });
+    form.setValue("longitude", lng.toString(), { shouldValidate: true });
   };
 
-  const handleMapClick = (lat: number, lng: number) => {
-    setFormData({
-      ...formData,
-      latitude: lat.toString(),
-      longitude: lng.toString(),
-    });
-  };
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const data = new FormData();
-
-    data.append("name", formData.name);
-    data.append("about", formData.about);
-    data.append("email", formData.email);
-    data.append("uf", formData.uf);
-    data.append("city", formData.city);
-    data.append("type", formData.type);
-    data.append("latitude", formData.latitude);
-    data.append("longitude", formData.longitude);
-    data.append("social", formData.social);
-
-    images.forEach((image) => {
-      data.append("images", image);
-    });
-
-    await api.post("organizations", data).then(() => {
-      alert("Cadastro realizado com sucesso!");
-    });
-  };
-
-  const handleSelectedImage = (event: ChangeEvent<HTMLInputElement>) => {
-    if (!event.target.files) {
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      setSubmitError("Seu navegador não suporta geolocalização.");
       return;
     }
 
-    const selectedImages = Array.from(event.target.files);
+    setLocating(true);
 
-    setImages((prevImages) => [...prevImages, ...selectedImages]);
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setPosition(coords.latitude, coords.longitude);
+        map?.flyTo([coords.latitude, coords.longitude], 15);
+        setLocating(false);
+      },
+      () => {
+        setSubmitError("Não consegui pegar sua localização. Marque no mapa manualmente.");
+        setLocating(false);
+      }
+    );
+  };
 
-    const selectedImagesPreview = selectedImages.map((image) => {
-      return URL.createObjectURL(image);
+  const handleSelectedImages = (event: ChangeEvent<HTMLInputElement>) => {
+    if (!event.target.files) return;
+
+    const selected = Array.from(event.target.files);
+    const tooLarge = selected.filter((file) => file.size > IMAGE_MAX_BYTES);
+    const accepted = selected.filter((file) => file.size <= IMAGE_MAX_BYTES);
+
+    setImageError(
+      tooLarge.length > 0 ? `${tooLarge.length} arquivo(s) acima de 5 MB foram ignorados` : null
+    );
+
+    setImages((current) => [
+      ...current,
+      ...accepted.map((file) => ({
+        file,
+        preview: URL.createObjectURL(file),
+      })),
+    ]);
+
+    // Permite escolher o mesmo arquivo de novo depois de removê-lo.
+    event.target.value = "";
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setImages((current) => {
+      URL.revokeObjectURL(current[index].preview);
+      return current.filter((_, position) => position !== index);
+    });
+  };
+
+  const onSubmit = async (values: FormValues) => {
+    setSubmitError(null);
+
+    const data = new FormData();
+
+    Object.entries(values).forEach(([key, value]) => {
+      data.append(key, value);
     });
 
-    setPreviewImages((prevPreviewImages) => [...prevPreviewImages, ...selectedImagesPreview]);
+    images.forEach((image) => {
+      data.append("images", image.file);
+    });
+
+    try {
+      await api.post("organizations", data);
+      navigate("/raves");
+    } catch {
+      setSubmitError("Não rolou salvar o cadastro. Confira sua conexão e tente de novo.");
+    }
   };
 
-  const handleDeleteImage = (index: number) => {
-    const newImages = [...images];
-    newImages.splice(index, 1);
-    setImages(newImages);
-
-    const newPreviewImages = [...previewImages];
-    newPreviewImages.splice(index, 1);
-    setPreviewImages(newPreviewImages);
-  };
+  const { isSubmitting } = form.formState;
 
   return (
-    <div id="page-create-organization">
+    <div
+      id="page-create-organization"
+      className="flex min-h-screen flex-col bg-background md:flex-row"
+    >
       <Sidebar />
 
-      <main>
-        <form className="create-organization-form" onSubmit={handleSubmit}>
-          <fieldset>
-            <legend>Dados</legend>
+      <main className="flex flex-1 justify-center px-4 py-8 md:py-12 md:pr-8 md:pl-32">
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            className="w-full max-w-3xl space-y-6"
+            noValidate
+          >
+            <header className="space-y-2">
+              <h1 className="font-display text-4xl tracking-wide text-foreground">
+                Cadastrar rolê
+              </h1>
+              <p className="font-sans text-base font-normal text-muted-foreground">
+                Coloque seu coletivo, festa ou label no mapa. Leva menos de dois minutos.
+              </p>
+            </header>
 
-            <div className="map-instruction">
-              <p>Clique no mapa para marcar a localização</p>
-            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Identidade</CardTitle>
+                <CardDescription>Como as pessoas encontram e reconhecem vocês.</CardDescription>
+              </CardHeader>
 
-            <MapContainer
-              center={[-30.0313778, -51.2256725]}
-              zoom={16}
-              style={{ width: "100%" }}
-              scrollWheelZoom={false}
-              doubleClickZoom={false}
-            >
-              <MapClickHandler onClick={handleMapClick} />
-              <TileLayer
-                attribution='Imagery &copy; <a href="https://www.mapbox.com/">Mapbox</a>'
-                url={`https://api.mapbox.com/styles/v1/${env.VITE_USERNAME}/${env.VITE_STYLE_ID}/tiles/256/{z}/{x}/{y}@2x?access_token=${env.VITE_ACCESS_TOKEN}`}
-              />
-            </MapContainer>
+              <CardContent className="space-y-6">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nome</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ex.: Bunker 034" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-            <div className="input-block">
-              <label htmlFor="name">Nome</label>
-              <input id="name" name="name" value={formData.name} onChange={handleInputChange} />
-            </div>
+                <FormField
+                  control={form.control}
+                  name="type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tipo</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || undefined}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione o tipo" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {TYPE_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-            <div className="input-block">
-              <label htmlFor="about">
-                Sobre <span>Máximo de 300 caracteres</span>
-              </label>
-              <textarea
-                id="about"
-                name="about"
-                maxLength={300}
-                value={formData.about}
-                onChange={handleInputChange}
-              ></textarea>
-            </div>
+                <FormField
+                  control={form.control}
+                  name="about"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Sobre</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          maxLength={ABOUT_MAX_LENGTH}
+                          placeholder="O que rola, para quem, desde quando."
+                          {...field}
+                        />
+                      </FormControl>
+                      <div className="flex items-center justify-between gap-4">
+                        <FormMessage />
+                        <span className="ml-auto font-sans text-xs font-normal text-muted-foreground tabular-nums">
+                          {aboutLength}/{ABOUT_MAX_LENGTH}
+                        </span>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              </CardContent>
+            </Card>
 
-            <div className="input-block">
-              <label htmlFor="email">E-mail</label>
-              <input id="email" name="email" value={formData.email} onChange={handleInputChange} />
-            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Localização</CardTitle>
+                <CardDescription>
+                  Clique no mapa para marcar o ponto — ou use sua localização atual.
+                </CardDescription>
+              </CardHeader>
 
-            <div className="input-block">
-              <label htmlFor="social">Social</label>
-              <input
-                id="social"
-                name="social"
-                value={formData.social}
-                onChange={handleInputChange}
-              />
-            </div>
+              <CardContent className="space-y-6">
+                <div className="space-y-3">
+                  <div className="overflow-hidden rounded-lg border border-solid border-border">
+                    <MapContainer
+                      ref={setMap}
+                      center={DEFAULT_CENTER}
+                      zoom={13}
+                      scrollWheelZoom={false}
+                      doubleClickZoom={false}
+                      className="h-70 w-full cursor-crosshair"
+                    >
+                      <TileLayer
+                        attribution='Imagery &copy; <a href="https://www.mapbox.com/">Mapbox</a>'
+                        url={`https://api.mapbox.com/styles/v1/${env.VITE_USERNAME}/${env.VITE_STYLE_ID}/tiles/256/{z}/{x}/{y}@2x?access_token=${env.VITE_ACCESS_TOKEN}`}
+                      />
+                      <MapClickHandler onClick={setPosition} />
+                      {hasPosition && (
+                        <Marker
+                          interactive={false}
+                          icon={mapIcon}
+                          position={[Number(latitude), Number(longitude)]}
+                        />
+                      )}
+                    </MapContainer>
+                  </div>
 
-            <div className="input-block select">
-              <label htmlFor="uf">UF</label>
-              <select id="uf" name="uf" value={formData.uf} onChange={handleInputChange}>
-                <option value="">Selecione o estado</option>
-                {optionsUf.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="font-sans text-xs font-normal text-muted-foreground tabular-nums">
+                      {hasPosition
+                        ? `Marcado em ${Number(latitude).toFixed(5)}, ${Number(longitude).toFixed(5)}`
+                        : "Nenhum ponto marcado ainda"}
+                    </p>
 
-            <div className="input-block">
-              <label htmlFor="city">Cidade</label>
-              <input id="city" name="city" value={formData.city} onChange={handleInputChange} />
-            </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleUseMyLocation}
+                      disabled={locating}
+                    >
+                      {locating ? <Loader2 className="animate-spin" /> : <Crosshair />}
+                      Usar minha localização
+                    </Button>
+                  </div>
 
-            <div className="input-block select">
-              <label htmlFor="type">Tipo</label>
-              <select
-                id="type"
-                name="type"
-                value={formData.type}
-                onChange={handleInputChange}
+                  {form.formState.errors.latitude && (
+                    <p className="font-sans text-xs font-semibold text-destructive">
+                      {form.formState.errors.latitude.message}
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid gap-6 sm:grid-cols-[120px_1fr]">
+                  <FormField
+                    control={form.control}
+                    name="uf"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>UF</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || undefined}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="UF" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {UF_OPTIONS.map((uf) => (
+                              <SelectItem key={uf} value={uf}>
+                                {uf}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="city"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Cidade</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Ex.: Porto Alegre" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Contato e fotos</CardTitle>
+                <CardDescription>Por onde falar com vocês e como é o rolê.</CardDescription>
+              </CardHeader>
+
+              <CardContent className="space-y-6">
+                <div className="grid gap-6 sm:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>E-mail</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="email"
+                            inputMode="email"
+                            autoComplete="email"
+                            placeholder="contato@exemplo.com"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="social"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Social</FormLabel>
+                        <FormControl>
+                          <Input placeholder="@seuperfil" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <FormItem>
+                  <FormLabel htmlFor="images">Fotos</FormLabel>
+
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-4">
+                    {images.map((image, index) => (
+                      <div
+                        key={image.preview}
+                        className="group relative overflow-hidden rounded-md border border-solid border-border"
+                      >
+                        <img
+                          src={image.preview}
+                          alt={image.file.name}
+                          className="h-24 w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveImage(index)}
+                          aria-label={`Remover ${image.file.name}`}
+                          className="absolute top-1 right-1 flex size-7 cursor-pointer items-center justify-center rounded-full border-0 bg-background/90 text-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+                        >
+                          <X className="size-4" />
+                        </button>
+                      </div>
+                    ))}
+
+                    <label
+                      htmlFor="images"
+                      className="flex h-24 cursor-pointer items-center justify-center rounded-md border border-dashed border-input bg-muted text-muted-foreground transition-colors hover:border-ring hover:text-foreground"
+                    >
+                      <Plus className="size-6" />
+                      <span className="sr-only">Adicionar fotos</span>
+                    </label>
+                  </div>
+
+                  <input
+                    id="images"
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={handleSelectedImages}
+                    className="hidden"
+                  />
+
+                  <FormDescription>JPG ou PNG, até 5 MB por arquivo. Opcional.</FormDescription>
+
+                  {imageError && (
+                    <p className="font-sans text-xs font-semibold text-destructive">{imageError}</p>
+                  )}
+                </FormItem>
+              </CardContent>
+            </Card>
+
+            {submitError && (
+              <div
+                role="alert"
+                className="flex items-start gap-3 rounded-md border border-solid border-destructive/40 bg-destructive/10 p-4"
               >
-                <option value="">Selecione o tipo</option>
-                {raveTypeOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="input-block">
-              <label htmlFor="images">Fotos</label>
-
-              <div className="images-container">
-                {previewImages.map((image, index) => {
-                  return (
-                    <div key={image} className="image-item">
-                      <img src={image} alt={formData.name} />
-                      <button type="button" onClick={() => handleDeleteImage(index)}>
-                        <FiXSquare size={20} color="#ff3333" />
-                      </button>
-                    </div>
-                  );
-                })}
-
-                <label htmlFor="image[]" className="new-image">
-                  <FiPlus size={24} color="#1a1a1a" />
-                </label>
+                <AlertCircle className="mt-0.5 size-5 shrink-0 text-destructive" />
+                <p className="font-sans text-sm font-normal text-destructive">{submitError}</p>
               </div>
-              <input multiple onChange={handleSelectedImage} type="file" id="image[]" />
-            </div>
-          </fieldset>
+            )}
 
-          <button className="confirm-button" type="submit">
-            Confirmar
-          </button>
-        </form>
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => navigate(-1)}
+                disabled={isSubmitting}
+              >
+                Cancelar
+              </Button>
+
+              <Button type="submit" size="lg" disabled={isSubmitting}>
+                {isSubmitting && <Loader2 className="animate-spin" />}
+                {isSubmitting ? "Salvando..." : "Confirmar cadastro"}
+              </Button>
+            </div>
+          </form>
+        </Form>
       </main>
     </div>
   );
 }
 
 function MapClickHandler({ onClick }: { onClick: (lat: number, lng: number) => void }) {
-  const [position, setPosition] = useState<[number, number] | null>(null); // To hold the position state
-
   useMapEvents({
-    click: (e) => {
-      setPosition([e.latlng.lat, e.latlng.lng]);
-      onClick(e.latlng.lat, e.latlng.lng);
-      // Here, you can also update your formData state with these coordinates if needed
+    click: (event) => {
+      onClick(event.latlng.lat, event.latlng.lng);
     },
-    // You can also handle other map events here if needed
   });
 
-  return position ? <Marker position={position} interactive={false} icon={mapIcon} /> : null; // Render marker on click position, or nothing if not clicked yet
+  return null;
 }
 
 export default CreateOrganization;
