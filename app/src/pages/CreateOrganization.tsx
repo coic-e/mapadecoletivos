@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import type { Map as LeafletMap } from "leaflet";
-import { AlertCircle, Crosshair, Loader2, Plus, X } from "lucide-react";
+import { AlertCircle, Crosshair, Loader2, MapPin, Plus, Search, X } from "lucide-react";
 
 import Sidebar from "@/components/Sidebar/Sidebar";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -28,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import api from "@/services/api";
+import { searchAddress, type GeocodeResult } from "@/services/geocode";
 import { env } from "@/config/env";
 import mapIcon from "@/utils/mapIcon";
 import { useSeo } from "@/hooks/useSeo";
@@ -108,6 +110,11 @@ function CreateOrganization() {
   const [imageError, setImageError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
+  const [addressQuery, setAddressQuery] = useState("");
+  const [addressResults, setAddressResults] = useState<GeocodeResult[]>([]);
+  const [addressStatus, setAddressStatus] = useState<"idle" | "searching" | "empty" | "error">(
+    "idle"
+  );
 
   // As object URLs precisam ser revogadas na saída da página, senão cada foto
   // adicionada fica retida em memória até o reload.
@@ -165,6 +172,39 @@ function CreateOrganization() {
         setLocating(false);
       }
     );
+  };
+
+  const handleSearchAddress = async () => {
+    if (addressQuery.trim().length < 3) return;
+
+    setAddressStatus("searching");
+
+    try {
+      const results = await searchAddress(addressQuery);
+
+      setAddressResults(results);
+      setAddressStatus(results.length === 0 ? "empty" : "idle");
+    } catch {
+      setAddressResults([]);
+      setAddressStatus("error");
+    }
+  };
+
+  const handlePickAddress = (result: GeocodeResult) => {
+    setPosition(result.latitude, result.longitude);
+    map?.flyTo([result.latitude, result.longitude], 16);
+
+    // O endereço também resolve cidade e UF, que são campos do cadastro.
+    if (result.city !== "") {
+      form.setValue("city", result.city, { shouldValidate: true });
+    }
+
+    if (result.uf !== "") {
+      form.setValue("uf", result.uf, { shouldValidate: true });
+    }
+
+    setAddressResults([]);
+    setAddressQuery(result.label);
   };
 
   const handleSelectedImages = (event: ChangeEvent<HTMLInputElement>) => {
@@ -318,11 +358,83 @@ function CreateOrganization() {
               <CardHeader>
                 <CardTitle>Localização</CardTitle>
                 <CardDescription>
-                  Clique no mapa para marcar o ponto — ou use sua localização atual.
+                  Busque o endereço, use sua localização atual ou clique direto no mapa.
                 </CardDescription>
               </CardHeader>
 
               <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="address-search">Buscar endereço</Label>
+
+                  <div className="flex gap-2">
+                    <Input
+                      id="address-search"
+                      value={addressQuery}
+                      placeholder="Rua, número, bairro ou nome do club"
+                      autoComplete="off"
+                      onChange={(event) => {
+                        setAddressQuery(event.target.value);
+                        setAddressStatus("idle");
+                      }}
+                      onKeyDown={(event) => {
+                        // Enter aqui buscaria endereço e enviaria o formulário.
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          handleSearchAddress();
+                        }
+                      }}
+                    />
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleSearchAddress}
+                      disabled={addressStatus === "searching" || addressQuery.trim().length < 3}
+                    >
+                      {addressStatus === "searching" ? (
+                        <Loader2 className="animate-spin" />
+                      ) : (
+                        <Search />
+                      )}
+                      Buscar
+                    </Button>
+                  </div>
+
+                  {addressResults.length > 0 && (
+                    <ul className="divide-y divide-border overflow-hidden rounded-md border border-solid border-border">
+                      {addressResults.map((result) => (
+                        <li key={result.id}>
+                          <button
+                            type="button"
+                            onClick={() => handlePickAddress(result)}
+                            className="flex w-full cursor-pointer items-start gap-2 border-0 bg-card p-3 text-left font-sans text-sm text-foreground transition-colors hover:bg-accent"
+                          >
+                            <MapPin className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                            {result.label}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {addressStatus === "empty" && (
+                    <p className="font-sans text-xs text-muted-foreground">
+                      Nenhum endereço encontrado. Tente outra busca ou marque direto no mapa.
+                    </p>
+                  )}
+
+                  {addressStatus === "error" && (
+                    <p className="font-sans text-xs font-semibold text-destructive">
+                      A busca de endereços falhou. Marque direto no mapa.
+                    </p>
+                  )}
+
+                  <FormDescription>
+                    Para lugares fixos, como um club, buscar o endereço já preenche cidade e UF. O
+                    ponto pode ser ajustado clicando no mapa.
+                  </FormDescription>
+                </div>
+
                 <div className="space-y-3">
                   <div className="overflow-hidden rounded-lg border border-solid border-border">
                     <MapContainer
