@@ -462,6 +462,7 @@ dependencies = [
  "chrono",
  "db-types",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1280,6 +1281,7 @@ dependencies = [
  "chrono",
  "diesel",
  "serde",
+ "serde_json",
  "validator",
 ]
 
@@ -1357,6 +1359,7 @@ dependencies = [
  "num-traits",
  "pq-sys",
  "r2d2",
+ "serde_json",
 ]
 
 [[package]]

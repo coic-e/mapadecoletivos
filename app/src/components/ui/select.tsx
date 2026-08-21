@@ -46,7 +46,10 @@ function SelectContent({
         data-slot="select-content"
         position={position}
         className={cn(
-          "relative z-50 max-h-72 min-w-32 overflow-hidden rounded-md border border-solid border-border bg-card text-foreground shadow-lg",
+          // z-1200: acima dos painéis do Leaflet (até 1000) e acima da modal
+          // (1100), porque um select dentro de um diálogo precisa abrir por
+          // cima dele.
+          "relative z-1200 max-h-72 min-w-32 overflow-hidden rounded-md border border-solid border-border bg-card text-foreground shadow-lg",
           position === "popper" &&
             "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
           className

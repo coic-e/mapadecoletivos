@@ -110,6 +110,7 @@ async fn main() -> std::io::Result<()> {
             // Domain routes
             .configure(domains::organizations::configure)
             .configure(domains::admins::configure)
+            .configure(domains::edit_requests::configure)
             // Health check endpoint
             .route(
                 "/health",

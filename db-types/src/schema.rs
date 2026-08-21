@@ -11,6 +11,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    edit_requests (id) {
+        id -> Int4,
+        organization_id -> Int4,
+        changes -> Jsonb,
+        message -> Nullable<Text>,
+        requester_email -> Nullable<Varchar>,
+        status -> Varchar,
+        created_at -> Timestamp,
+        reviewed_at -> Nullable<Timestamp>,
+        reviewed_by -> Nullable<Int4>,
+    }
+}
+
+diesel::table! {
     images (id) {
         id -> Int4,
         path -> Varchar,
@@ -55,7 +69,9 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(edit_requests -> admins (reviewed_by));
+diesel::joinable!(edit_requests -> organizations (organization_id));
 diesel::joinable!(images -> organizations (organization_id));
 diesel::joinable!(organizations -> admins (reviewed_by));
 
-diesel::allow_tables_to_appear_in_same_query!(admins, images, organizations,);
+diesel::allow_tables_to_appear_in_same_query!(admins, edit_requests, images, organizations,);

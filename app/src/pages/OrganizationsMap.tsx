@@ -7,7 +7,9 @@ import Leaflet from "leaflet";
 import { env } from "@/config/env";
 import api from "@/services/api";
 import mapMarkerImg from "@/images/map-marker.svg";
+import { MARKER_RATIO } from "@/utils/mapIcon";
 import { useSeo } from "@/hooks/useSeo";
+import SeedDataNotice from "@/components/SeedDataNotice";
 
 interface Organization {
   id: number;
@@ -17,18 +19,39 @@ interface Organization {
   name: string;
 }
 
+const MIN_ZOOM = 3;
+const MAX_ZOOM = 18;
+const MIN_MARKER_WIDTH = 18;
+const MAX_MARKER_WIDTH = 44;
+
+/**
+ * Largura do marcador para o zoom atual, interpolada linearmente entre os
+ * extremos do mapa.
+ *
+ * O cálculo anterior crescia 1,5× por nível de zoom, o que estourava o teto no
+ * zoom 7: dos 15 níveis disponíveis, o tamanho só variava em dois, e nos
+ * outros treze ficava preso no mínimo ou no máximo.
+ */
+const markerWidthFor = (zoom: number) => {
+  const progress = (zoom - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM);
+  const clamped = Math.min(1, Math.max(0, progress));
+
+  // Arredondado para múltiplos de 2px: o ícone só é recriado quando a mudança
+  // é visível, e não a cada fração de zoom.
+  return Math.round((MIN_MARKER_WIDTH + (MAX_MARKER_WIDTH - MIN_MARKER_WIDTH) * clamped) / 2) * 2;
+};
+
 const createScaledIcon = (zoom: number) => {
-  // O marcador cresce junto com o zoom, a partir do nível 5.
-  const baseZoom = 5;
-  const baseSize = 30;
-  const scale = Math.pow(1.5, zoom - baseZoom);
-  const size = Math.max(20, Math.min(60, baseSize * scale));
+  const width = markerWidthFor(zoom);
+  const height = width * MARKER_RATIO;
 
   return Leaflet.icon({
     iconUrl: mapMarkerImg,
-    iconSize: [size, size],
-    iconAnchor: [size - 1, size - 1],
-    popupAnchor: [165, 30],
+    iconSize: [width, height],
+    // A ponta do pin, embaixo e no meio: é ela que aponta a coordenada.
+    iconAnchor: [width / 2, height],
+    // Acima da ponta, para o balão não cobrir o próprio marcador.
+    popupAnchor: [0, -height],
   });
 };
 
@@ -77,63 +100,67 @@ function OrganizationsMap() {
   }, []);
 
   return (
-    <div className="relative flex h-dvh w-screen flex-col bg-background md:flex-row">
-      <aside className="flex w-full flex-col justify-center gap-6 bg-background p-6 md:min-w-80 md:max-w-90 md:justify-center md:p-10 lg:min-w-95 lg:max-w-110">
-        <header className="flex flex-col items-center gap-4 text-center md:items-start md:text-left">
-          <h2 className="font-display text-[clamp(24px,4vw,34px)] leading-tight tracking-wide text-foreground uppercase">
-            Coletivos de música eletrônica no Brasil
-          </h2>
-          <p className="font-sans text-[clamp(13px,2.5vw,16px)] leading-snug text-muted-foreground">
-            Você sabia que são mais de 260 atores que compõem nosso cenário?
-          </p>
-        </header>
-      </aside>
+    <div className="relative flex h-dvh w-screen flex-col bg-background">
+      <SeedDataNotice />
 
-      <MapContainer
-        center={[-13.702797, -50.6865109]}
-        zoom={5.1}
-        minZoom={3}
-        maxZoom={18}
-        worldCopyJump={false}
-        maxBounds={[
-          [-90, -180],
-          [90, 180],
-        ]}
-        maxBoundsViscosity={1.0}
-        className="z-5 min-h-100 w-full flex-1 bg-neutral-900 [&_.leaflet-tile]:bg-neutral-900 [&_.leaflet-tile-pane]:bg-neutral-900"
-      >
-        <ZoomHandler onZoomChange={handleZoomChange} />
-        <TileLayer
-          attribution='Imagery &copy; <a href="https://www.mapbox.com/">Mapbox</a>'
-          url={`https://api.mapbox.com/styles/v1/${env.VITE_USERNAME}/${env.VITE_STYLE_ID}/tiles/256/{z}/{x}/{y}@2x?access_token=${env.VITE_ACCESS_TOKEN}`}
-          noWrap={true}
-        />
+      <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+        <aside className="flex w-full flex-col justify-center gap-6 bg-background p-6 md:min-w-80 md:max-w-90 md:justify-center md:p-10 lg:min-w-95 lg:max-w-110">
+          <header className="flex flex-col items-center gap-4 text-center md:items-start md:text-left">
+            <h2 className="font-display text-[clamp(24px,4vw,34px)] leading-tight tracking-wide text-foreground uppercase">
+              Coletivos de música eletrônica no Brasil
+            </h2>
+            <p className="font-sans text-[clamp(13px,2.5vw,16px)] leading-snug text-muted-foreground">
+              Você sabia que são mais de 260 atores que compõem nosso cenário?
+            </p>
+          </header>
+        </aside>
 
-        {organizations.map((organization) => (
-          <Marker
-            icon={mapIcon}
-            position={[organization.latitude, organization.longitude]}
-            key={organization.id}
-          >
-            <Popup
-              closeButton={false}
-              minWidth={240}
-              maxWidth={240}
-              className="[&_.leaflet-popup-content-wrapper]:rounded-lg [&_.leaflet-popup-content-wrapper]:bg-card/95 [&_.leaflet-popup-content-wrapper]:shadow-xl [&_.leaflet-popup-content-wrapper]:backdrop-blur-sm [&_.leaflet-popup-content]:m-0 [&_.leaflet-popup-content]:flex [&_.leaflet-popup-content]:items-center [&_.leaflet-popup-content]:justify-between [&_.leaflet-popup-content]:gap-4 [&_.leaflet-popup-content]:px-4 [&_.leaflet-popup-content]:py-3 [&_.leaflet-popup-content]:font-sans [&_.leaflet-popup-content]:text-base [&_.leaflet-popup-content]:font-semibold [&_.leaflet-popup-content]:text-card-foreground [&_.leaflet-popup-tip-container]:hidden"
+        <MapContainer
+          center={[-13.702797, -50.6865109]}
+          zoom={5.1}
+          minZoom={3}
+          maxZoom={18}
+          worldCopyJump={false}
+          maxBounds={[
+            [-90, -180],
+            [90, 180],
+          ]}
+          maxBoundsViscosity={1.0}
+          className="z-5 min-h-100 w-full flex-1 bg-neutral-900 [&_.leaflet-tile]:bg-neutral-900 [&_.leaflet-tile-pane]:bg-neutral-900"
+        >
+          <ZoomHandler onZoomChange={handleZoomChange} />
+          <TileLayer
+            attribution='Imagery &copy; <a href="https://www.mapbox.com/">Mapbox</a>'
+            url={`https://api.mapbox.com/styles/v1/${env.VITE_USERNAME}/${env.VITE_STYLE_ID}/tiles/256/{z}/{x}/{y}@2x?access_token=${env.VITE_ACCESS_TOKEN}`}
+            noWrap={true}
+          />
+
+          {organizations.map((organization) => (
+            <Marker
+              icon={mapIcon}
+              position={[organization.latitude, organization.longitude]}
+              key={organization.id}
             >
-              {organization.name}
-
-              <Link
-                to={`/raves/${organization.slug}`}
-                aria-label={`Ver ${organization.name}`}
-                className="flex size-10 min-w-10 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105"
+              <Popup
+                closeButton={false}
+                minWidth={240}
+                maxWidth={240}
+                className="[&_.leaflet-popup-content-wrapper]:rounded-lg [&_.leaflet-popup-content-wrapper]:bg-card/95 [&_.leaflet-popup-content-wrapper]:shadow-xl [&_.leaflet-popup-content-wrapper]:backdrop-blur-sm [&_.leaflet-popup-content]:m-0 [&_.leaflet-popup-content]:flex [&_.leaflet-popup-content]:items-center [&_.leaflet-popup-content]:justify-between [&_.leaflet-popup-content]:gap-4 [&_.leaflet-popup-content]:px-4 [&_.leaflet-popup-content]:py-3 [&_.leaflet-popup-content]:font-sans [&_.leaflet-popup-content]:text-base [&_.leaflet-popup-content]:font-semibold [&_.leaflet-popup-content]:text-card-foreground [&_.leaflet-popup-tip-container]:hidden"
               >
-                <FiArrowRight size={20} />
-              </Link>
-            </Popup>
-          </Marker>
-        ))}
-      </MapContainer>
+                {organization.name}
+
+                <Link
+                  to={`/raves/${organization.slug}`}
+                  aria-label={`Ver ${organization.name}`}
+                  className="flex size-10 min-w-10 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105"
+                >
+                  <FiArrowRight size={20} />
+                </Link>
+              </Popup>
+            </Marker>
+          ))}
+        </MapContainer>
+      </div>
 
       <Link
         to="/raves/create"

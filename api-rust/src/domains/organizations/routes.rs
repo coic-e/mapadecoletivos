@@ -7,11 +7,14 @@ use validator::Validate;
 use crate::auth::AdminIdentity;
 use crate::config::AppConfig;
 use crate::db::DbPool;
+use crate::domains::edit_requests::repository::EditRequestRepository;
+use crate::domains::organizations::repository::OrganizationRepository;
 use crate::errors::ApiError;
 use crate::handlers::upload::{parse_bigdecimal, process_multipart};
 use crate::rate_limit::{client_key, SubmissionRateLimiter};
 use crate::storage::Storage;
 use api_types::OrganizationView;
+use db_types::edit_request::OrganizationChanges;
 use db_types::organization::{slugify, ModerationStatus, NewOrganization};
 
 use super::actions;
@@ -57,7 +60,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         web::scope("/organizations")
             .route("", web::post().to(create))
             .route("", web::get().to(index))
-            .route("/{id}", web::get().to(show)),
+            .route("/{id}", web::get().to(show))
+            // Pedido público de correção. Fica aqui, e não no módulo de
+            // edit_requests, porque este escopo já é dono de /organizations.
+            .route(
+                "/{id_or_slug}/edit-requests",
+                web::post().to(crate::domains::edit_requests::routes::create),
+            ),
     );
 
     // Rotas de moderação. Todo handler aqui pede AdminIdentity, então sem
@@ -66,6 +75,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         web::scope("/admin/organizations")
             .route("", web::get().to(moderation_index))
             .route("/{id}", web::get().to(moderation_show))
+            .route("/{id}", web::patch().to(update))
             .route("/{id}/approve", web::post().to(approve))
             .route("/{id}/reject", web::post().to(reject)),
     );
@@ -137,6 +147,58 @@ pub async fn moderation_show(
             &mut conn,
             organization_id,
         )
+    })
+    .await
+    .map_err(|e| ApiError::InternalError(e.to_string()))??;
+
+    let view = OrganizationView::render(&organization, &images, &config.storage.public_base_url);
+
+    Ok(HttpResponse::Ok().json(view))
+}
+
+/// PATCH /admin/organizations/{id} — edição direta pelo moderador.
+///
+/// Campo ausente fica como está. Não devolve o cadastro para a fila: quem
+/// editou aqui é a própria moderação.
+pub async fn update(
+    _identity: AdminIdentity,
+    path: web::Path<i32>,
+    payload: web::Json<OrganizationChanges>,
+    pool: web::Data<DbPool>,
+    config: web::Data<AppConfig>,
+) -> Result<HttpResponse, ApiError> {
+    let organization_id = path.into_inner();
+    let changes = payload.into_inner();
+
+    if changes.is_empty() {
+        return Err(ApiError::ValidationError(
+            vec![(
+                "changes".to_string(),
+                vec!["Informe ao menos um campo para alterar".to_string()],
+            )]
+            .into_iter()
+            .collect(),
+        ));
+    }
+
+    changes.validate().map_err(ApiError::from)?;
+
+    if let Err(reason) = changes.validate_closed_lists() {
+        return Err(ApiError::ValidationError(
+            vec![("changes".to_string(), vec![reason])]
+                .into_iter()
+                .collect(),
+        ));
+    }
+
+    let mut conn = pool
+        .get()
+        .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+
+    let (organization, images) = web::block(move || {
+        EditRequestRepository::apply_changes(&mut conn, organization_id, &changes)?;
+
+        OrganizationRepository::find_by_id(&mut conn, organization_id)
     })
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;

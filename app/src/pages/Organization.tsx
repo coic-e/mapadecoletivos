@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { MapContainer, TileLayer, Marker } from "react-leaflet";
+import { FaGlobe } from "react-icons/fa6";
+import { SiBandcamp, SiInstagram, SiSoundcloud, SiSpotify, SiYoutube } from "react-icons/si";
 
 import { env } from "@/config/env";
 import Sidebar from "@/components/Sidebar";
@@ -9,6 +11,8 @@ import mapIcon from "@/utils/mapIcon";
 import api from "@/services/api";
 import { cn } from "@/lib/utils";
 import { useSeo } from "@/hooks/useSeo";
+import EditRequestDialog from "@/components/EditRequestDialog";
+import SeedDataNotice from "@/components/SeedDataNotice";
 
 interface IOrganization {
   id: number;
@@ -134,14 +138,26 @@ function Organization() {
   const links = [
     {
       label: "Instagram",
+      Icon: SiInstagram,
       url: toLinkUrl(organization.instagram, "https://instagram.com/"),
     },
-    { label: "SoundCloud", url: toLinkUrl(organization.soundcloud, "https://soundcloud.com/") },
-    { label: "Bandcamp", url: toLinkUrl(organization.bandcamp) },
-    { label: "YouTube", url: toLinkUrl(organization.youtube, "https://youtube.com/@") },
-    { label: "Spotify", url: toLinkUrl(organization.spotify) },
-    { label: "Site", url: toLinkUrl(organization.website) },
-  ].filter((link): link is { label: string; url: string } => link.url !== null);
+    {
+      label: "SoundCloud",
+      Icon: SiSoundcloud,
+      url: toLinkUrl(organization.soundcloud, "https://soundcloud.com/"),
+    },
+    { label: "Bandcamp", Icon: SiBandcamp, url: toLinkUrl(organization.bandcamp) },
+    {
+      label: "YouTube",
+      Icon: SiYoutube,
+      url: toLinkUrl(organization.youtube, "https://youtube.com/@"),
+    },
+    { label: "Spotify", Icon: SiSpotify, url: toLinkUrl(organization.spotify) },
+    // Site não tem marca própria: o globo é o genérico que todo mundo lê.
+    { label: "Site", Icon: FaGlobe, url: toLinkUrl(organization.website) },
+  ].filter(
+    (link): link is { label: string; Icon: typeof FaGlobe; url: string } => link.url !== null
+  );
   const activeImage = images[activeImageIndex];
 
   return (
@@ -149,139 +165,165 @@ function Organization() {
       <Sidebar />
 
       <main className="flex flex-1 justify-center px-4 py-8 md:py-16 md:pr-8 md:pl-32">
-        <article className="w-full max-w-3xl overflow-hidden rounded-xl border border-border bg-card">
-          {activeImage && (
-            <img
-              src={activeImage.url}
-              alt={organization.name}
-              className="h-75 w-full object-cover"
-            />
-          )}
+        <div className="w-full max-w-3xl space-y-4">
+          <SeedDataNotice />
 
-          {images.length > 1 && (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-4 px-6 pt-4 md:px-10">
-              {images.map((image, index) => (
-                <button
-                  type="button"
-                  key={image.id}
-                  onClick={() => setActiveImageIndex(index)}
-                  aria-label={`Foto ${index + 1} de ${images.length}`}
-                  aria-pressed={activeImageIndex === index}
-                  className={cn(
-                    "h-22 cursor-pointer overflow-hidden rounded-lg border-0 bg-transparent p-0 opacity-60 transition-opacity",
-                    activeImageIndex === index && "opacity-100"
-                  )}
-                >
-                  <img src={image.url} alt="" className="h-22 w-full object-cover" />
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="p-6 md:p-12">
-            <header className="flex flex-col gap-2">
-              <p className="font-sans text-xs font-bold tracking-widest text-muted-foreground uppercase">
-                {organization.type} · {organization.city}/{organization.uf}
-              </p>
-              <h1 className="font-display text-4xl leading-none tracking-wide text-foreground md:text-5xl">
-                {organization.name}
-              </h1>
-            </header>
-
-            {!organization.is_active && (
-              <p className="mt-4 inline-block rounded-full bg-muted px-3 py-1 font-sans text-xs font-bold tracking-wide text-muted-foreground uppercase">
-                Encerrado
-              </p>
+          <article className="w-full overflow-hidden rounded-xl border border-border bg-card">
+            {activeImage && (
+              <img
+                src={activeImage.url}
+                alt={organization.name}
+                className="h-75 w-full object-cover"
+              />
             )}
 
-            {organization.genres.length > 0 && (
-              <ul className="mt-4 flex flex-wrap gap-2">
-                {organization.genres.map((genre) => (
-                  <li
-                    key={genre}
-                    className="rounded-full border border-border px-3 py-1 font-sans text-xs font-semibold text-foreground"
+            {images.length > 1 && (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-4 px-6 pt-4 md:px-10">
+                {images.map((image, index) => (
+                  <button
+                    type="button"
+                    key={image.id}
+                    onClick={() => setActiveImageIndex(index)}
+                    aria-label={`Foto ${index + 1} de ${images.length}`}
+                    aria-pressed={activeImageIndex === index}
+                    className={cn(
+                      "h-22 cursor-pointer overflow-hidden rounded-lg border-0 bg-transparent p-0 opacity-60 transition-opacity",
+                      activeImageIndex === index && "opacity-100"
+                    )}
                   >
-                    {genre}
-                  </li>
+                    <img src={image.url} alt="" className="h-22 w-full object-cover" />
+                  </button>
                 ))}
-              </ul>
+              </div>
             )}
 
-            <p className="mt-6 font-sans text-base leading-relaxed text-muted-foreground">
-              {organization.about}
-            </p>
+            <div className="p-6 md:p-12">
+              <header className="flex flex-col gap-2">
+                <p className="font-sans text-xs font-bold tracking-widest text-muted-foreground uppercase">
+                  {organization.type} · {organization.city}/{organization.uf}
+                </p>
+                <h1 className="font-display text-4xl leading-none tracking-wide text-foreground md:text-5xl">
+                  {organization.name}
+                </h1>
+              </header>
 
-            {(organization.address || organization.frequency) && (
-              <dl className="mt-6 flex flex-col gap-2 font-sans text-sm">
-                {organization.address && (
-                  <div className="flex gap-2">
-                    <dt className="font-semibold text-foreground">Endereço:</dt>
-                    <dd className="text-muted-foreground">{organization.address}</dd>
-                  </div>
-                )}
-                {organization.frequency && (
-                  <div className="flex gap-2">
-                    <dt className="font-semibold text-foreground">Frequência:</dt>
-                    <dd className="text-muted-foreground">{organization.frequency}</dd>
-                  </div>
-                )}
-              </dl>
-            )}
-
-            <div className="mt-10 overflow-hidden rounded-xl border border-border">
-              <MapContainer
-                center={[organization.latitude, organization.longitude]}
-                zoom={16}
-                dragging={false}
-                zoomControl={false}
-                scrollWheelZoom={false}
-                doubleClickZoom={false}
-                className="h-70 w-full bg-neutral-900 [&_.leaflet-tile]:bg-neutral-900 [&_.leaflet-tile-pane]:bg-neutral-900"
-              >
-                <TileLayer
-                  attribution='Imagery &copy; <a href="https://www.mapbox.com/">Mapbox</a>'
-                  url={`https://api.mapbox.com/styles/v1/${env.VITE_USERNAME}/${env.VITE_STYLE_ID}/tiles/256/{z}/{x}/{y}@2x?access_token=${env.VITE_ACCESS_TOKEN}`}
-                />
-                <Marker
-                  interactive={false}
-                  icon={mapIcon}
-                  position={[organization.latitude, organization.longitude]}
-                />
-              </MapContainer>
-
-              <footer className="border-t border-border py-4 text-center">
-                <a
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  href={`https://www.google.com/maps/dir/?api=1&destination=${organization.latitude},${organization.longitude}`}
-                  className="font-sans text-sm font-semibold text-foreground underline-offset-4 hover:underline"
-                >
-                  Ver rotas no Google Maps
-                </a>
-              </footer>
-            </div>
-
-            <hr className="my-10 h-px border-0 bg-border" />
-
-            <div className="flex flex-col gap-4">
-              {links.length > 0 && (
-                <div className="flex flex-wrap gap-3">
-                  {links.map((link) => (
-                    <Button key={link.label} asChild variant="outline">
-                      <a href={link.url} target="_blank" rel="noopener noreferrer">
-                        {link.label}
-                      </a>
-                    </Button>
-                  ))}
-                </div>
+              {!organization.is_active && (
+                <p className="mt-4 inline-block rounded-full bg-muted px-3 py-1 font-sans text-xs font-bold tracking-wide text-muted-foreground uppercase">
+                  Encerrado
+                </p>
               )}
 
-              <Button asChild>
-                <a href={`mailto:${organization.email}`}>Entrar em contato</a>
-              </Button>
+              {organization.genres.length > 0 && (
+                <ul className="mt-4 flex flex-wrap gap-2">
+                  {organization.genres.map((genre) => (
+                    <li
+                      key={genre}
+                      className="rounded-full border border-border px-3 py-1 font-sans text-xs font-semibold text-foreground"
+                    >
+                      {genre}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <p className="mt-6 font-sans text-base leading-relaxed text-muted-foreground">
+                {organization.about}
+              </p>
+
+              {(organization.address || organization.frequency) && (
+                <dl className="mt-6 flex flex-col gap-2 font-sans text-sm">
+                  {organization.address && (
+                    <div className="flex gap-2">
+                      <dt className="font-semibold text-foreground">Endereço:</dt>
+                      <dd className="text-muted-foreground">{organization.address}</dd>
+                    </div>
+                  )}
+                  {organization.frequency && (
+                    <div className="flex gap-2">
+                      <dt className="font-semibold text-foreground">Frequência:</dt>
+                      <dd className="text-muted-foreground">{organization.frequency}</dd>
+                    </div>
+                  )}
+                </dl>
+              )}
+
+              {/* isolate: cria contexto de empilhamento próprio, para os painéis do
+                Leaflet não competirem com o resto da página. */}
+              <div className="isolate mt-10 overflow-hidden rounded-xl border border-border">
+                <MapContainer
+                  center={[organization.latitude, organization.longitude]}
+                  zoom={16}
+                  dragging={false}
+                  zoomControl={false}
+                  scrollWheelZoom={false}
+                  doubleClickZoom={false}
+                  className="h-70 w-full bg-neutral-900 [&_.leaflet-tile]:bg-neutral-900 [&_.leaflet-tile-pane]:bg-neutral-900"
+                >
+                  <TileLayer
+                    attribution='Imagery &copy; <a href="https://www.mapbox.com/">Mapbox</a>'
+                    url={`https://api.mapbox.com/styles/v1/${env.VITE_USERNAME}/${env.VITE_STYLE_ID}/tiles/256/{z}/{x}/{y}@2x?access_token=${env.VITE_ACCESS_TOKEN}`}
+                  />
+                  <Marker
+                    interactive={false}
+                    icon={mapIcon}
+                    position={[organization.latitude, organization.longitude]}
+                  />
+                </MapContainer>
+
+                <footer className="border-t border-border py-4 text-center">
+                  <a
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${organization.latitude},${organization.longitude}`}
+                    className="font-sans text-sm font-semibold text-foreground underline-offset-4 hover:underline"
+                  >
+                    Ver rotas no Google Maps
+                  </a>
+                </footer>
+              </div>
+
+              <hr className="my-10 h-px border-0 bg-border" />
+
+              <div className="flex flex-col gap-4">
+                {links.length > 0 && (
+                  <div className="flex flex-wrap gap-3">
+                    {links.map((link) => (
+                      <Button key={link.label} asChild variant="outline">
+                        <a href={link.url} target="_blank" rel="noopener noreferrer">
+                          <link.Icon aria-hidden="true" />
+                          {link.label}
+                        </a>
+                      </Button>
+                    ))}
+                  </div>
+                )}
+
+                <Button asChild>
+                  <a href={`mailto:${organization.email}`}>Entrar em contato</a>
+                </Button>
+              </div>
+
+              <div className="mt-10 border-t border-border pt-6">
+                <EditRequestDialog
+                  slug={organization.slug}
+                  current={{
+                    name: organization.name,
+                    city: organization.city,
+                    uf: organization.uf,
+                    address: organization.address,
+                    email: organization.email,
+                    instagram: organization.instagram,
+                    soundcloud: organization.soundcloud,
+                    bandcamp: organization.bandcamp,
+                    youtube: organization.youtube,
+                    spotify: organization.spotify,
+                    website: organization.website,
+                  }}
+                />
+              </div>
             </div>
-          </div>
-        </article>
+          </article>
+        </div>
       </main>
     </div>
   );

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { AlertCircle, Check, Loader2, LogOut, X } from "lucide-react";
+import { AlertCircle, Check, Loader2, LogOut, PencilLine, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import api from "@/services/api";
 import { fetchCurrentAdmin, logout, type Admin } from "@/services/auth";
+import { fetchEditRequests, reviewEditRequest, type EditRequest } from "@/services/editRequests";
 import { useSeo } from "@/hooks/useSeo";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +38,25 @@ const FILTERS = [
 
 type Filter = (typeof FILTERS)[number]["value"];
 
+/** Rótulos dos campos que um pedido de correção pode tocar. */
+const FIELD_LABELS: Record<string, string> = {
+  name: "Nome",
+  about: "Sobre",
+  email: "E-mail",
+  city: "Cidade",
+  uf: "UF",
+  address: "Endereço",
+  instagram: "Instagram",
+  soundcloud: "SoundCloud",
+  bandcamp: "Bandcamp",
+  youtube: "YouTube",
+  spotify: "Spotify",
+  website: "Site",
+  genres: "Gêneros",
+  frequency: "Periodicidade",
+  is_active: "Ativo",
+};
+
 function AdminModeration() {
   const navigate = useNavigate();
 
@@ -48,6 +68,8 @@ function AdminModeration() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [editRequests, setEditRequests] = useState<EditRequest[]>([]);
+  const [busyRequestId, setBusyRequestId] = useState<number | null>(null);
 
   useSeo({
     title: "Fila de moderação | Mapa de Rave",
@@ -82,6 +104,32 @@ function AdminModeration() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const loadEditRequests = useCallback(async () => {
+    try {
+      setEditRequests(await fetchEditRequests("pending"));
+    } catch {
+      setError("Não consegui carregar os pedidos de correção.");
+    }
+  }, []);
+
+  useEffect(() => {
+    loadEditRequests();
+  }, [loadEditRequests]);
+
+  const reviewRequest = async (id: number, decision: "apply" | "reject") => {
+    setBusyRequestId(id);
+    setError(null);
+
+    try {
+      await reviewEditRequest(id, decision);
+      await Promise.all([loadEditRequests(), load()]);
+    } catch {
+      setError("A decisão não foi salva. Tente de novo.");
+    } finally {
+      setBusyRequestId(null);
+    }
+  };
 
   const review = async (id: number, decision: "approve" | "reject") => {
     setBusyId(id);
@@ -134,6 +182,76 @@ function AdminModeration() {
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-8">
+        {editRequests.length > 0 && (
+          <section className="mb-10">
+            <h2 className="mb-4 flex items-center gap-2 font-display text-2xl tracking-wide text-foreground">
+              <PencilLine className="size-5" />
+              Pedidos de correção ({editRequests.length})
+            </h2>
+
+            <ul className="space-y-4">
+              {editRequests.map((request) => (
+                <li key={request.id}>
+                  <Card>
+                    <CardContent className="flex flex-col gap-3 p-4 sm:p-6">
+                      <p className="font-sans text-xs tracking-widest text-muted-foreground uppercase">
+                        Cadastro #{request.organization_id}
+                        {request.requester_email
+                          ? ` · sugerido por ${request.requester_email}`
+                          : " · sem contato"}
+                      </p>
+
+                      {request.message && (
+                        <p className="font-sans text-sm text-foreground italic">
+                          “{request.message}”
+                        </p>
+                      )}
+
+                      <dl className="flex flex-col gap-1">
+                        {Object.entries(request.changes).map(([field, value]) => (
+                          <div key={field} className="flex flex-wrap gap-2">
+                            <dt className="font-sans text-sm font-bold text-foreground">
+                              {FIELD_LABELS[field] ?? field}:
+                            </dt>
+                            <dd className="font-sans text-sm text-muted-foreground">
+                              {Array.isArray(value) ? value.join(", ") : String(value)}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          disabled={busyRequestId === request.id}
+                          onClick={() => reviewRequest(request.id, "apply")}
+                        >
+                          {busyRequestId === request.id ? (
+                            <Loader2 className="animate-spin" />
+                          ) : (
+                            <Check />
+                          )}
+                          Aplicar
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busyRequestId === request.id}
+                          onClick={() => reviewRequest(request.id, "reject")}
+                        >
+                          <X />
+                          Descartar
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <div className="mb-6 flex flex-wrap gap-2">
           {FILTERS.map((option) => (
             <Button
