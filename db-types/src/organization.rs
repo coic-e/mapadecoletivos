@@ -35,6 +35,53 @@ pub struct Organization {
     pub website: Option<String>,
     pub is_active: bool,
     pub frequency: Option<String>,
+    pub slug: String,
+}
+
+/// Transforma o nome em pedaço de URL: minúsculo, sem acento, com hífen no
+/// lugar de qualquer coisa que não seja letra ou número.
+///
+/// Não garante unicidade — quem cuida disso é o repositório, que acrescenta um
+/// sufixo numérico quando o slug já existe.
+pub fn slugify(value: &str) -> String {
+    const COM_ACENTO: &str = "áàâãäéèêëíìîïóòôõöúùûüçñ";
+    const SEM_ACENTO: &[char] = &[
+        'a', 'a', 'a', 'a', 'a', 'e', 'e', 'e', 'e', 'i', 'i', 'i', 'i', 'o', 'o', 'o', 'o', 'o',
+        'u', 'u', 'u', 'u', 'c', 'n',
+    ];
+
+    let mut slug = String::with_capacity(value.len());
+    let mut last_was_dash = true;
+
+    for character in value.to_lowercase().chars() {
+        let plain = COM_ACENTO
+            .chars()
+            .position(|accented| accented == character)
+            .map(|index| SEM_ACENTO[index])
+            .unwrap_or(character);
+
+        if plain.is_ascii_alphanumeric() {
+            slug.push(plain);
+            last_was_dash = false;
+        } else if !last_was_dash {
+            slug.push('-');
+            last_was_dash = true;
+        }
+    }
+
+    let slug = slug.trim_matches('-').to_string();
+
+    // Nome só de emoji ou pontuação deixaria o slug vazio, e a coluna é NOT
+    // NULL com índice único.
+    if slug.is_empty() {
+        return "role".to_string();
+    }
+
+    slug.chars()
+        .take(80)
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
 }
 
 /// Estados de moderação. O banco garante o conjunto com um CHECK; aqui os
@@ -255,6 +302,9 @@ pub struct NewOrganization {
     #[validate(custom(function = "validate_frequency", message = "Periodicidade inválida"))]
     pub frequency: Option<String>,
 
+    /// Preenchido pela camada de negócio, não por quem envia o formulário.
+    pub slug: String,
+
     #[validate(length(
         min = 10,
         max = 1200,
@@ -288,7 +338,21 @@ mod tests {
             website: None,
             is_active: true,
             frequency: Some("Mensal".to_string()),
+            slug: "coletivo-teste".to_string(),
         }
+    }
+
+    #[test]
+    fn slugify_handles_accents_and_punctuation() {
+        assert_eq!(slugify("Depósito 42"), "deposito-42");
+        assert_eq!(slugify("Bunker 034 — Techno!"), "bunker-034-techno");
+        assert_eq!(slugify("  Ação   Coletiva  "), "acao-coletiva");
+    }
+
+    #[test]
+    fn slugify_never_returns_empty() {
+        assert_eq!(slugify("🎧🎶"), "role");
+        assert_eq!(slugify("---"), "role");
     }
 
     #[test]

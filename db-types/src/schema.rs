@@ -15,6 +15,7 @@ diesel::table! {
         id -> Int4,
         path -> Varchar,
         organization_id -> Int4,
+        position -> Int4,
     }
 }
 
@@ -50,6 +51,7 @@ diesel::table! {
         website -> Nullable<Varchar>,
         is_active -> Bool,
         frequency -> Nullable<Varchar>,
+        slug -> Varchar,
     }
 }
 

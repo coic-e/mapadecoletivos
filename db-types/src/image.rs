@@ -11,6 +11,8 @@ pub struct Image {
     pub id: i32,
     pub path: String,
     pub organization_id: i32,
+    /// Ordem de exibição. A de menor posição é a capa.
+    pub position: i32,
 }
 
 #[derive(Debug, Clone, Insertable, Deserialize)]
@@ -18,4 +20,5 @@ pub struct Image {
 pub struct NewImage {
     pub path: String,
     pub organization_id: i32,
+    pub position: i32,
 }

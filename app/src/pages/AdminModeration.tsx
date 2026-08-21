@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 interface OrganizationSummary {
   id: number;
+  slug: string;
   name: string;
   type: string;
   city: string;
@@ -288,7 +289,7 @@ function AdminModeration() {
 
                           {organization.status === "approved" && (
                             <Button asChild variant="ghost" size="sm">
-                              <Link to={`/raves/${organization.id}`}>Ver no site</Link>
+                              <Link to={`/raves/${organization.slug}`}>Ver no site</Link>
                             </Button>
                           )}
                         </div>

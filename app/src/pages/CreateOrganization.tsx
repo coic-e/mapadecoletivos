@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import type { Map as LeafletMap } from "leaflet";
-import { AlertCircle, Crosshair, Loader2, MapPin, Plus, Search, X } from "lucide-react";
+import { AlertCircle, Crosshair, Loader2, MapPin, Plus, Search, Star, X } from "lucide-react";
 
 import Sidebar from "@/components/Sidebar/Sidebar";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ import { searchAddress, type GeocodeResult } from "@/services/geocode";
 import { env } from "@/config/env";
 import mapIcon from "@/utils/mapIcon";
 import { useSeo } from "@/hooks/useSeo";
+import { useFormDraft } from "@/hooks/useFormDraft";
 
 import { cn } from "@/lib/utils";
 
@@ -116,6 +117,7 @@ function CreateOrganization() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [coverIndex, setCoverIndex] = useState(0);
   const [addressQuery, setAddressQuery] = useState("");
   const [addressResults, setAddressResults] = useState<GeocodeResult[]>([]);
   const [addressStatus, setAddressStatus] = useState<"idle" | "searching" | "empty" | "error">(
@@ -157,6 +159,11 @@ function CreateOrganization() {
       longitude: "",
       consent: false,
     },
+  });
+
+  // O aceite não é restaurado: cada envio precisa da confirmação de novo.
+  const { restored, clearDraft } = useFormDraft("mapaderave.cadastro.rascunho", form, {
+    exclude: ["consent"],
   });
 
   const aboutLength = form.watch("about").length;
@@ -256,6 +263,14 @@ function CreateOrganization() {
       URL.revokeObjectURL(current[index].preview);
       return current.filter((_, position) => position !== index);
     });
+
+    // Sem isso, remover uma foto anterior à capa deslocaria a seleção para a
+    // foto vizinha sem o usuário pedir.
+    setCoverIndex((current) => {
+      if (index === current) return 0;
+      if (index < current) return current - 1;
+      return current;
+    });
   };
 
   const onSubmit = async (values: FormValues) => {
@@ -281,6 +296,7 @@ function CreateOrganization() {
     // Os campos do multipart viram um mapa na API, então nome repetido se
     // sobrescreveria: os gêneros vão num campo só, separados por vírgula.
     data.append("genres", values.genres.join(","));
+    data.append("cover_index", String(coverIndex));
     data.append("is_active", String(values.isActive));
 
     // Opcional em branco não é enviado: para a API, ausente e vazio são a
@@ -310,6 +326,7 @@ function CreateOrganization() {
 
     try {
       await api.post("organizations", data);
+      clearDraft();
       setSubmitted(true);
       window.scrollTo({ top: 0 });
     } catch {
@@ -346,7 +363,9 @@ function CreateOrganization() {
                 className="flex-1"
                 onClick={() => {
                   form.reset();
+                  clearDraft();
                   setImages([]);
+                  setCoverIndex(0);
                   setSubmitted(false);
                 }}
               >
@@ -373,6 +392,26 @@ function CreateOrganization() {
             className="w-full max-w-3xl space-y-6"
             noValidate
           >
+            {restored && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-solid border-border bg-muted p-4">
+                <p className="font-sans text-sm text-muted-foreground">
+                  Recuperamos o que você tinha preenchido antes. As fotos precisam ser escolhidas de
+                  novo.
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    form.reset();
+                    clearDraft();
+                  }}
+                >
+                  Começar do zero
+                </Button>
+              </div>
+            )}
+
             <header className="space-y-2">
               <h1 className="font-display text-4xl tracking-wide text-foreground">
                 Cadastrar rolê
@@ -833,6 +872,22 @@ function CreateOrganization() {
                         >
                           <X className="size-4" />
                         </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setCoverIndex(index)}
+                          aria-pressed={coverIndex === index}
+                          aria-label={`Usar ${image.file.name} como capa`}
+                          className={cn(
+                            "absolute right-1 bottom-1 left-1 flex cursor-pointer items-center justify-center gap-1 rounded-sm border-0 py-1 font-sans text-xs font-bold transition-colors",
+                            coverIndex === index
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-background/90 text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          <Star className="size-3" />
+                          {coverIndex === index ? "Capa" : "Usar de capa"}
+                        </button>
                       </div>
                     ))}
 
@@ -855,7 +910,8 @@ function CreateOrganization() {
                   />
 
                   <FormDescription>
-                    JPG ou PNG, até 5 MB por arquivo. Pelo menos uma é obrigatória.
+                    JPG ou PNG, até 5 MB por arquivo. Pelo menos uma é obrigatória, e a capa é a que
+                    aparece no topo da página.
                   </FormDescription>
 
                   {imageError && (

@@ -150,6 +150,8 @@ Returns array of collectives with images. Supports pagination.
 
 ### Get Single Collective
 
+`GET /organizations/{id_ou_slug}` aceita as duas formas: numérico é id, o resto é slug. Os dois existem porque o site passou a linkar por slug, mas links antigos com id continuam circulando por aí.
+
 ```http
 GET /collectives/:id
 ```
@@ -181,7 +183,9 @@ Cria com `status = "pending"`: o cadastro só aparece no site depois que um mode
 | `genres` | um ou mais da lista fechada, **separados por vírgula num campo só** — os campos do multipart viram um mapa, então nome repetido se sobrescreveria |
 | `images` | ao menos um arquivo |
 
-**Opcionais:** `address`, `instagram`, `soundcloud`, `bandcamp`, `youtube`, `spotify`, `website`, `frequency` (Semanal, Quinzenal, Mensal, Sazonal, Pontual) e `is_active` (ausente significa ativo).
+**Opcionais:** `address`, `instagram`, `soundcloud`, `bandcamp`, `youtube`, `spotify`, `website`, `frequency` (Semanal, Quinzenal, Mensal, Sazonal, Pontual), `is_active` (ausente significa ativo) e `cover_index` (qual das fotos enviadas é a capa, pela ordem de envio; ausente ou fora da faixa usa a primeira).
+
+O `slug` é derivado do nome na criação e devolvido na resposta. Nome repetido ganha sufixo numérico — `deposito-42`, `deposito-42-2` — resolvido dentro da transação para duas requisições simultâneas não saírem com o mesmo slug.
 
 **Regra que cruza campos:** pelo menos um dos seis links precisa vir preenchido, senão o cadastro não serve para achar o rolê. O erro volta em `errors.__all__`, não preso a um campo.
 

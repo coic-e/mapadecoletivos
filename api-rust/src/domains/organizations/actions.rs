@@ -14,17 +14,38 @@ pub fn create_organization(
     conn: &mut DbConnection,
     new_org: NewOrganization,
     files: Vec<String>,
+    cover_index: usize,
 ) -> Result<(Organization, Vec<db_types::image::Image>), ApiError> {
     conn.transaction::<_, ApiError, _>(|conn| {
+        // O slug precisa ser único e é resolvido aqui, dentro da transação:
+        // duas requisições com o mesmo nome não podem sair com o mesmo slug.
+        let mut new_org = new_org;
+        new_org.slug = OrganizationRepository::find_free_slug(conn, &new_org.slug)?;
+
         // Create organization
         let organization = OrganizationRepository::create(conn, &new_org)?;
 
-        // Prepare images
+        // A capa escolhida vai para a posição 0; as outras seguem a ordem de
+        // envio. Índice fora da faixa cai na primeira foto.
+        let cover = if cover_index < files.len() {
+            cover_index
+        } else {
+            0
+        };
+
         let new_images: Vec<NewImage> = files
             .iter()
-            .map(|filename| NewImage {
+            .enumerate()
+            .map(|(index, filename)| NewImage {
                 path: filename.clone(),
                 organization_id: organization.id,
+                position: if index == cover {
+                    0
+                } else if index < cover {
+                    index as i32 + 1
+                } else {
+                    index as i32
+                },
             })
             .collect();
 
@@ -33,6 +54,14 @@ pub fn create_organization(
 
         Ok((organization, images))
     })
+}
+
+/// Busca pública por slug: só devolve cadastro aprovado.
+pub fn get_organization_by_slug(
+    conn: &mut DbConnection,
+    slug: &str,
+) -> Result<(Organization, Vec<db_types::image::Image>), ApiError> {
+    OrganizationRepository::find_approved_by_slug(conn, slug)
 }
 
 /// Busca pública por id: só devolve cadastro aprovado.

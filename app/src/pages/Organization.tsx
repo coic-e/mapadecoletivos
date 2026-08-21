@@ -12,6 +12,7 @@ import { useSeo } from "@/hooks/useSeo";
 
 interface IOrganization {
   id: number;
+  slug: string;
   latitude: number;
   longitude: number;
   name: string;
@@ -102,7 +103,8 @@ function Organization() {
     description: organization
       ? organization.about.slice(0, 155)
       : "Perfil de um coletivo de música eletrônica no Mapa de Rave.",
-    path: `/raves/${params.id}`,
+    // Canonical no slug: quem chega por /raves/2 aponta para /raves/nome-do-role.
+    path: `/raves/${organization?.slug ?? params.id}`,
   });
 
   if (status === "error") {

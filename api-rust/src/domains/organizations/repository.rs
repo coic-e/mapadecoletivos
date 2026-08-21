@@ -21,6 +21,44 @@ impl OrganizationRepository {
             .map_err(ApiError::from)
     }
 
+    /// Acha um slug livre a partir do slug base, acrescentando sufixo numérico
+    /// enquanto houver colisão: bunker-034, bunker-034-2, bunker-034-3...
+    pub fn find_free_slug(conn: &mut DbConnection, base: &str) -> Result<String, ApiError> {
+        let mut candidate = base.to_string();
+        let mut suffix = 1;
+
+        loop {
+            let taken: i64 = organizations::table
+                .filter(organizations::slug.eq(&candidate))
+                .count()
+                .get_result(conn)?;
+
+            if taken == 0 {
+                return Ok(candidate);
+            }
+
+            suffix += 1;
+            candidate = format!("{base}-{suffix}");
+        }
+    }
+
+    /// Busca pública por slug. Mesma regra do id: só aprovado existe.
+    pub fn find_approved_by_slug(
+        conn: &mut DbConnection,
+        slug: &str,
+    ) -> Result<(Organization, Vec<Image>), ApiError> {
+        let organization = organizations::table
+            .filter(organizations::slug.eq(slug))
+            .filter(organizations::status.eq(ModerationStatus::APPROVED))
+            .first::<Organization>(conn)?;
+
+        let imgs = Image::belonging_to(&organization)
+            .order(images::position.asc())
+            .load::<Image>(conn)?;
+
+        Ok((organization, imgs))
+    }
+
     /// Busca pública: um cadastro só existe para o site depois de aprovado.
     /// Pendente ou rejeitado responde 404, e não "existe mas está escondido".
     pub fn find_approved_by_id(
@@ -32,7 +70,9 @@ impl OrganizationRepository {
             .filter(organizations::status.eq(ModerationStatus::APPROVED))
             .first::<Organization>(conn)?;
 
-        let imgs = Image::belonging_to(&organization).load::<Image>(conn)?;
+        let imgs = Image::belonging_to(&organization)
+            .order(images::position.asc())
+            .load::<Image>(conn)?;
 
         Ok((organization, imgs))
     }
@@ -73,6 +113,7 @@ impl OrganizationRepository {
         let organizations_list = query.load::<Organization>(conn)?;
 
         let images_list = Image::belonging_to(&organizations_list)
+            .order(images::position.asc())
             .load::<Image>(conn)?
             .grouped_by(&organizations_list);
 
@@ -88,7 +129,9 @@ impl OrganizationRepository {
             .find(organization_id)
             .first::<Organization>(conn)?;
 
-        let imgs = Image::belonging_to(&organization).load::<Image>(conn)?;
+        let imgs = Image::belonging_to(&organization)
+            .order(images::position.asc())
+            .load::<Image>(conn)?;
 
         Ok((organization, imgs))
     }

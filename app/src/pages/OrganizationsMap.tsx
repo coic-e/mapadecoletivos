@@ -11,6 +11,7 @@ import { useSeo } from "@/hooks/useSeo";
 
 interface Organization {
   id: number;
+  slug: string;
   latitude: number;
   longitude: number;
   name: string;
@@ -123,7 +124,7 @@ function OrganizationsMap() {
               {organization.name}
 
               <Link
-                to={`/raves/${organization.id}`}
+                to={`/raves/${organization.slug}`}
                 aria-label={`Ver ${organization.name}`}
                 className="flex size-10 min-w-10 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105"
               >

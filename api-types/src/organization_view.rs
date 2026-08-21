@@ -8,6 +8,7 @@ use serde::Serialize;
 #[derive(Debug, Clone, Serialize)]
 pub struct OrganizationView {
     pub id: i32,
+    pub slug: String,
     pub name: String,
     pub latitude: f64,
     pub longitude: f64,
@@ -38,6 +39,7 @@ impl OrganizationView {
     pub fn render(organization: &Organization, images: &[Image], base_url: &str) -> Self {
         OrganizationView {
             id: organization.id,
+            slug: organization.slug.clone(),
             name: organization.name.clone(),
             latitude: organization.latitude.to_f64().unwrap_or_default(),
             longitude: organization.longitude.to_f64().unwrap_or_default(),

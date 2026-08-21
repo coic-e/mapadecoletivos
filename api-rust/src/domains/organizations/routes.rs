@@ -11,7 +11,7 @@ use crate::errors::ApiError;
 use crate::handlers::upload::{cleanup_files, parse_bigdecimal, process_multipart};
 use crate::rate_limit::{client_key, SubmissionRateLimiter};
 use api_types::OrganizationView;
-use db_types::organization::{ModerationStatus, NewOrganization};
+use db_types::organization::{slugify, ModerationStatus, NewOrganization};
 
 use super::actions;
 
@@ -266,6 +266,8 @@ pub async fn create(
 
     // Extract text fields
     let name = get_field("name")?;
+    // Calculado antes de `name` ser movido para a struct.
+    let slug = slugify(&name);
     let latitude_str = get_field("latitude")?;
     let longitude_str = get_field("longitude")?;
     let type_ = get_field("type")?;
@@ -324,6 +326,8 @@ pub async fn create(
         website: optional_field("website"),
         is_active,
         frequency: optional_field("frequency"),
+        // A unicidade é resolvida na transação de criação.
+        slug,
     };
 
     // Validate organization data
@@ -360,19 +364,27 @@ pub async fn create(
     let upload_dir = config.upload_dir.clone();
 
     // Execute business logic in blocking thread
-    let result =
-        web::block(move || actions::create_organization(&mut conn, new_organization, files))
-            .await
-            .map_err(|e| {
-                // Cleanup files on blocking error
-                let filenames: Vec<String> = multipart_data
-                    .files
-                    .iter()
-                    .map(|f| f.filename.clone())
-                    .collect();
-                cleanup_files(&upload_dir, &filenames);
-                ApiError::InternalError(e.to_string())
-            })?;
+    // Qual das fotos enviadas é a capa, pela ordem de envio.
+    let cover_index = multipart_data
+        .fields
+        .get("cover_index")
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(0);
+
+    let result = web::block(move || {
+        actions::create_organization(&mut conn, new_organization, files, cover_index)
+    })
+    .await
+    .map_err(|e| {
+        // Cleanup files on blocking error
+        let filenames: Vec<String> = multipart_data
+            .files
+            .iter()
+            .map(|f| f.filename.clone())
+            .collect();
+        cleanup_files(&upload_dir, &filenames);
+        ApiError::InternalError(e.to_string())
+    })?;
 
     // Handle database result
     let (organization, images) = result.inspect_err(|_e| {
@@ -391,22 +403,27 @@ pub async fn create(
     Ok(HttpResponse::Created().json(view))
 }
 
-/// GET /organizations/{id} - Get a single organization
+/// GET /organizations/{id_ou_slug} - Um cadastro, por id ou por slug
+///
+/// Aceita os dois porque o site passou a usar slug, mas links antigos com id
+/// continuam existindo por aí. Numérico é id; o resto é slug.
 pub async fn show(
-    path: web::Path<i32>,
+    path: web::Path<String>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, ApiError> {
-    let organization_id = path.into_inner();
+    let identifier = path.into_inner();
 
     let mut conn = pool
         .get()
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
-    let (organization, images) =
-        web::block(move || actions::get_organization_by_id(&mut conn, organization_id))
-            .await
-            .map_err(|e| ApiError::InternalError(e.to_string()))??;
+    let (organization, images) = web::block(move || match identifier.parse::<i32>() {
+        Ok(organization_id) => actions::get_organization_by_id(&mut conn, organization_id),
+        Err(_) => actions::get_organization_by_slug(&mut conn, &identifier),
+    })
+    .await
+    .map_err(|e| ApiError::InternalError(e.to_string()))??;
 
     let view = OrganizationView::render(&organization, &images, &config.base_url);
 
