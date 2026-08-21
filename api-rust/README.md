@@ -209,12 +209,12 @@ O banco guarda **só a chave do objeto**; a URL é montada na resposta a partir 
 
 | Variável | Para quê |
 |---|---|
-| `S3_ENDPOINT` | vazio para AWS S3; `http://minio:9000` no compose |
+| `S3_ENDPOINT` | vazio para AWS S3; `http://rustfs:9000` no compose; `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` no R2 |
 | `S3_BUCKET` | nome do bucket |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | credenciais |
 | `S3_PUBLIC_BASE_URL` | como o navegador chega nas imagens (CDN, se houver) |
 | `S3_REGION` | padrão `us-east-1` |
-| `S3_FORCE_PATH_STYLE` | padrão: ligado quando há endpoint (MinIO), desligado na AWS |
+| `S3_FORCE_PATH_STYLE` | padrão: ligado quando há endpoint, desligado na AWS |
 
 Em produção, a política do bucket deve permitir apenas `s3:GetObject` em `arn:aws:s3:::<bucket>/*`. Liberar `ListBucket` expõe o nome de toda imagem enviada, inclusive de cadastros que a moderação nunca aprovou.
 
