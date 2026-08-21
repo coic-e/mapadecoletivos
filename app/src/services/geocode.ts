@@ -69,7 +69,7 @@ export async function searchAddress(query: string, signal?: AbortSignal): Promis
 
   const url =
     `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(term)}.json` +
-    `?access_token=${env.VITE_ACCESS_TOKEN}&country=br&language=pt&limit=5&types=address,poi,place,neighborhood`;
+    `?access_token=${env.VITE_MAPBOX_ACCESS_TOKEN}&country=br&language=pt&limit=5&types=address,poi,place,neighborhood`;
 
   const response = await fetch(url, { signal });
 

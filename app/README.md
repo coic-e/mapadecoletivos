@@ -33,10 +33,17 @@ O site sobe em `http://localhost:5173` e fala com a API em `http://localhost:808
 
 | Variável | Obrigatória | Para quê |
 |---|---|---|
-| `VITE_USERNAME` | sim | usuário do Mapbox, monta a URL dos tiles |
-| `VITE_STYLE_ID` | sim | id do estilo do mapa no Mapbox |
-| `VITE_ACCESS_TOKEN` | sim | token do Mapbox: tiles e busca de endereço |
+| `VITE_MAPBOX_USERNAME` | sim | usuário do Mapbox, monta a URL dos tiles |
+| `VITE_MAPBOX_STYLE_ID` | sim | id do estilo do mapa no Mapbox |
+| `VITE_MAPBOX_ACCESS_TOKEN` | sim | token público do Mapbox: tiles e busca de endereço |
 | `VITE_SITE_URL` | em produção | URL absoluta do site; alimenta canonical, Open Graph, `robots.txt` e `sitemap.xml` |
+| `VITE_API_URL` | não | endereço da API; **vazia liga o modo de demonstração** |
+
+O token do Mapbox vai no bundle e é visível para qualquer pessoa que abrir o
+site — é assim que funciona mapa no navegador. O que impede o abuso não é
+escondê-lo, e sim restringi-lo por URL no painel do Mapbox, para ele só
+responder a partir dos seus domínios. Ele é público de propósito; o segredo que
+não pode vazar é o `JWT_SECRET`, que vive na API e nunca chega ao front.
 
 Sem `VITE_SITE_URL`, o build de produção avisa no console e cai em `http://localhost:5173` — o que faz o Google indexar URLs de localhost. Defina no ambiente de deploy.
 

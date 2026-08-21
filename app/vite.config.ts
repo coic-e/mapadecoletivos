@@ -7,9 +7,9 @@ import tsconfigPaths from "vite-tsconfig-paths";
 import { z } from "zod";
 
 const envSchema = z.object({
-  VITE_USERNAME: z.string().min(1, "VITE_USERNAME is required"),
-  VITE_STYLE_ID: z.string().min(1, "VITE_STYLE_ID is required"),
-  VITE_ACCESS_TOKEN: z.string().min(1, "VITE_ACCESS_TOKEN is required"),
+  VITE_MAPBOX_USERNAME: z.string().min(1, "VITE_MAPBOX_USERNAME is required"),
+  VITE_MAPBOX_STYLE_ID: z.string().min(1, "VITE_MAPBOX_STYLE_ID is required"),
+  VITE_MAPBOX_ACCESS_TOKEN: z.string().min(1, "VITE_MAPBOX_ACCESS_TOKEN is required"),
 });
 
 const DEFAULT_SITE_URL = "http://localhost:5173";

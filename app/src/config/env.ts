@@ -5,9 +5,9 @@ import { z } from "zod";
  * Ensures all required environment variables are present and valid
  */
 const envSchema = z.object({
-  VITE_USERNAME: z.string().min(1, "VITE_USERNAME is required"),
-  VITE_STYLE_ID: z.string().min(1, "VITE_STYLE_ID is required"),
-  VITE_ACCESS_TOKEN: z.string().min(1, "VITE_ACCESS_TOKEN is required"),
+  VITE_MAPBOX_USERNAME: z.string().min(1, "VITE_MAPBOX_USERNAME is required"),
+  VITE_MAPBOX_STYLE_ID: z.string().min(1, "VITE_MAPBOX_STYLE_ID is required"),
+  VITE_MAPBOX_ACCESS_TOKEN: z.string().min(1, "VITE_MAPBOX_ACCESS_TOKEN is required"),
   /** URL absoluta do site, usada em canonical e Open Graph. Opcional em dev. */
   VITE_SITE_URL: z.string().default(""),
   /**
@@ -44,9 +44,9 @@ type EnvSchema = z.infer<typeof envSchema>;
 function validateEnv(): EnvSchema {
   try {
     return envSchema.parse({
-      VITE_USERNAME: import.meta.env.VITE_USERNAME,
-      VITE_STYLE_ID: import.meta.env.VITE_STYLE_ID,
-      VITE_ACCESS_TOKEN: import.meta.env.VITE_ACCESS_TOKEN,
+      VITE_MAPBOX_USERNAME: import.meta.env.VITE_MAPBOX_USERNAME,
+      VITE_MAPBOX_STYLE_ID: import.meta.env.VITE_MAPBOX_STYLE_ID,
+      VITE_MAPBOX_ACCESS_TOKEN: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN,
       VITE_SITE_URL: import.meta.env.VITE_SITE_URL,
       VITE_API_URL: import.meta.env.VITE_API_URL,
     });

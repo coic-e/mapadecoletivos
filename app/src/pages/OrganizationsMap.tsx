@@ -131,7 +131,7 @@ function OrganizationsMap() {
           <ZoomHandler onZoomChange={handleZoomChange} />
           <TileLayer
             attribution='Imagery &copy; <a href="https://www.mapbox.com/">Mapbox</a>'
-            url={`https://api.mapbox.com/styles/v1/${env.VITE_USERNAME}/${env.VITE_STYLE_ID}/tiles/256/{z}/{x}/{y}@2x?access_token=${env.VITE_ACCESS_TOKEN}`}
+            url={`https://api.mapbox.com/styles/v1/${env.VITE_MAPBOX_USERNAME}/${env.VITE_MAPBOX_STYLE_ID}/tiles/256/{z}/{x}/{y}@2x?access_token=${env.VITE_MAPBOX_ACCESS_TOKEN}`}
             noWrap={true}
           />
 
