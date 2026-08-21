@@ -40,6 +40,25 @@ O site sobe em `http://localhost:5173` e fala com a API em `http://localhost:808
 
 Sem `VITE_SITE_URL`, o build de produção avisa no console e cai em `http://localhost:5173` — o que faz o Google indexar URLs de localhost. Defina no ambiente de deploy.
 
+## Modo de demonstração
+
+Com `VITE_API_URL` **vazia**, o app não chama API nenhuma: um adapter do axios responde com os dados estáticos de `src/services/seed/`. Serve para publicar o front sozinho — numa preview da Vercel, por exemplo — e revisar telas antes de a API existir num servidor.
+
+```bash
+VITE_API_URL=            # vazio liga a demonstração
+```
+
+O que muda:
+
+- sete coletivos inventados aparecem no mapa, um deles pendente para o painel de moderação ter o que mostrar;
+- qualquer e-mail e senha entram em `/admin/login`, porque não há segredo a proteger em dado inventado;
+- cadastrar, sugerir correção, aprovar e rejeitar funcionam **na memória da aba** e somem no reload;
+- uma faixa avisa, em toda tela, que os dados são de demonstração.
+
+As capas são SVGs em `public/seed/`, e os e-mails usam o domínio reservado `example.com`, que nunca chega a ninguém.
+
+Isto não substitui o backend para teste sério: nada é validado de verdade, e o adapter só cobre as rotas que as telas usam. As credenciais do Mapbox continuam obrigatórias, senão o mapa sobe sem tiles.
+
 ## Scripts
 
 ```bash

@@ -1,11 +1,16 @@
 import axios from "axios";
 
-import { env } from "@/config/env";
+import { env, usesSeedData } from "@/config/env";
 
 import { clearToken, getToken } from "./auth";
+import { seedAdapter } from "./seed/adapter";
 
 const api = axios.create({
   baseURL: env.VITE_API_URL,
+  // Sem API configurada, quem atende é o adapter de demonstração. Trocar o
+  // adapter, e não as chamadas, mantém o código das telas idêntico ao de
+  // produção: o preview exercita o mesmo caminho, com outro atendente.
+  ...(usesSeedData ? { adapter: seedAdapter } : {}),
 });
 
 // Anexa o token do moderador quando existe. As rotas públicas ignoram o

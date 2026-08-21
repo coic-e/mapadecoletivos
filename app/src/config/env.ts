@@ -14,14 +14,25 @@ const envSchema = z.object({
    * URL da API. Precisa ser https fora de localhost: em página https, uma API
    * http é bloqueada pelo navegador como conteúdo misto — e, quando passa, o
    * token do moderador viaja em texto claro.
+   *
+   * Vazio é um caso à parte: significa "não há API", e o app passa a responder
+   * com dados de demonstração. É o que permite publicar o front sozinho, para
+   * revisar telas antes de a API existir num servidor.
    */
   VITE_API_URL: z
-    .url("VITE_API_URL precisa ser uma URL absoluta")
-    .refine(
-      (value) => value.startsWith("https://") || new URL(value).hostname === "localhost",
-      "VITE_API_URL precisa usar https fora de localhost"
-    )
-    .default("http://localhost:8080"),
+    .string()
+    .default("http://localhost:8080")
+    .refine((value) => {
+      if (value.trim() === "") return true;
+
+      try {
+        const url = new URL(value);
+
+        return url.protocol === "https:" || url.hostname === "localhost";
+      } catch {
+        return false;
+      }
+    }, "VITE_API_URL precisa ser uma URL absoluta e usar https fora de localhost"),
 });
 
 type EnvSchema = z.infer<typeof envSchema>;
@@ -58,3 +69,11 @@ function validateEnv(): EnvSchema {
  * Use this instead of import.meta.env directly
  */
 export const env = validateEnv();
+
+/**
+ * Sem API configurada, o app roda com dados de demonstração.
+ *
+ * Nada é gravado e o que aparece no mapa é inventado — por isso a interface
+ * avisa em quem estiver vendo.
+ */
+export const usesSeedData = env.VITE_API_URL.trim() === "";
