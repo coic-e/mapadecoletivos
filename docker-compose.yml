@@ -22,54 +22,61 @@ services:
       retries: 10
     networks:
       - rave-map-network
-  # Bucket local compatível com S3. Em produção o lugar dele é S3, R2 ou
-  # Spaces — a API não sabe a diferença, muda só endpoint e credenciais.
-  minio:
-    image: minio/minio:latest
-    container_name: rave-map-minio
+  # Bucket local compatível com S3.
+  #
+  # RustFS no lugar do MinIO: o MinIO teve o console removido da edição
+  # comunitária em 2025 e o repositório foi arquivado em abril de 2026. Isto
+  # aqui é ambiente de desenvolvimento; em produção o destino é o Cloudflare R2,
+  # e a API não sabe a diferença — muda endpoint e credenciais.
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: rave-map-rustfs
     restart: unless-stopped
-    command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=${S3_ACCESS_KEY:?defina S3_ACCESS_KEY no .env}
-      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:?defina S3_SECRET_KEY no .env}
+      - RUSTFS_ACCESS_KEY=${S3_ACCESS_KEY:?defina S3_ACCESS_KEY no .env}
+      - RUSTFS_SECRET_KEY=${S3_SECRET_KEY:?defina S3_SECRET_KEY no .env}
+      # 0.0.0.0 e não ":9000": com o endereço só com a porta, o RustFS escuta
+      # apenas em IPv6, e o Docker encaminha a porta publicada para o IPv4 do
+      # container — a conexão é recusada e o container não registra nada.
+      - RUSTFS_ADDRESS=0.0.0.0:9000
+      - RUSTFS_CONSOLE_ADDRESS=0.0.0.0:9001
+      - RUSTFS_CONSOLE_ENABLE=true
     ports:
       # 9000 é a API do bucket, 9001 é o console web. Só no localhost.
       - 127.0.0.1:9000:9000
       - 127.0.0.1:9001:9001
     volumes:
-      - minio:/data
-    healthcheck:
-      test: ["CMD-SHELL", "mc ready local || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
+      # Volume nomeado, não bind mount: a imagem roda como uid 10001 e um
+      # diretório do host entraria com o dono do host, sem permissão de escrita.
+      - rustfs:/data
+    command: /data
     networks:
       - rave-map-network
 
-  # Cria o bucket e aplica a política pública. Roda uma vez e sai; a API espera
+  # Cria o bucket e libera leitura anônima. Roda uma vez e sai; a API espera
   # ele terminar, senão o primeiro upload encontraria bucket inexistente.
   #
-  # A política é escrita à mão em vez de `mc anonymous set download` porque o
-  # atalho concede ListBucket junto com GetObject — e a listagem entrega o nome
-  # de toda imagem já enviada, inclusive de cadastro pendente ou rejeitado, que
-  # o site não mostra a ninguém. Aqui só GetObject é liberado.
-  minio-init:
-    image: minio/mc:latest
-    container_name: rave-map-minio-init
+  # A política é escrita à mão em vez de um atalho de "tornar público": liberar
+  # ListBucket junto entregaria o nome de toda imagem enviada, inclusive de
+  # cadastro pendente ou rejeitado. Aqui só GetObject é permitido.
+  rustfs-init:
+    image: amazon/aws-cli:latest
+    container_name: rave-map-rustfs-init
     depends_on:
-      minio:
-        condition: service_healthy
+      rustfs:
+        condition: service_started
+    environment:
+      - AWS_ACCESS_KEY_ID=${S3_ACCESS_KEY:?defina S3_ACCESS_KEY no .env}
+      - AWS_SECRET_ACCESS_KEY=${S3_SECRET_KEY:?defina S3_SECRET_KEY no .env}
+      - AWS_DEFAULT_REGION=${S3_REGION:-us-east-1}
+      - BUCKET=${S3_BUCKET:-rave-map}
     entrypoint: >
       sh -c "
-      mc alias set local http://minio:9000 $${S3_ACCESS_KEY} $${S3_SECRET_KEY} &&
-      mc mb --ignore-existing local/$${S3_BUCKET} &&
-      printf '%s' '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::'$${S3_BUCKET}'/*\"]}]}' > /tmp/policy.json &&
-      mc anonymous set-json /tmp/policy.json local/$${S3_BUCKET}
+      until aws --endpoint-url http://rustfs:9000 s3 ls >/dev/null 2>&1; do sleep 1; done &&
+      (aws --endpoint-url http://rustfs:9000 s3api create-bucket --bucket $${BUCKET} || true) &&
+      printf '%s' '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::'$${BUCKET}'/*\"]}]}' > /tmp/policy.json &&
+      aws --endpoint-url http://rustfs:9000 s3api put-bucket-policy --bucket $${BUCKET} --policy file:///tmp/policy.json
       "
-    environment:
-      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
-      - S3_SECRET_KEY=${S3_SECRET_KEY}
-      - S3_BUCKET=${S3_BUCKET:-rave-map}
     networks:
       - rave-map-network
 
@@ -87,7 +94,7 @@ services:
       - SERVER_PORT=8080
       # Bucket das imagens. O endpoint é o nome do serviço na rede do compose;
       # a base pública é como o navegador chega lá, de fora.
-      - S3_ENDPOINT=http://minio:9000
+      - S3_ENDPOINT=http://rustfs:9000
       - S3_BUCKET=${S3_BUCKET:-rave-map}
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:?defina S3_ACCESS_KEY no .env}
       - S3_SECRET_KEY=${S3_SECRET_KEY:?defina S3_SECRET_KEY no .env}
@@ -109,7 +116,7 @@ services:
     depends_on:
       database:
         condition: service_healthy
-      minio-init:
+      rustfs-init:
         condition: service_completed_successfully
     # O container não precisa escrever em lugar nenhum além de uploads e /tmp.
     read_only: true
@@ -126,4 +133,4 @@ networks:
 
 volumes:
   pgdata:
-  minio:
+  rustfs:

@@ -32,12 +32,26 @@ Sobe dois serviços:
 | Serviço | Container | Porta | Detalhes |
 |---|---|---|---|
 | Postgres 16 | `rave-map-db` | 5432 | usuário `docker`, banco `rave_map` |
-| MinIO | `rave-map-minio` | 9000 / 9001 | bucket das imagens; 9001 é o console web |
+| RustFS | `rave-map-rustfs` | 9000 / 9001 | bucket das imagens; 9001 é o console web |
 | API Rust | `rave-map-rust-api` | 8080 | espera banco e bucket ficarem prontos |
 
 As portas ficam publicadas só em `127.0.0.1`, e o compose exige um `.env` na raiz — copie de `.env.example` e preencha. Não há valor padrão para segredo: a API recusa subir com os de exemplo.
 
-As imagens dos cadastros vão para um bucket compatível com S3, não para o disco do container. O MinIO cobre o ambiente local; em produção troque endpoint e credenciais por S3, R2 ou Spaces. **A política do bucket precisa liberar só `s3:GetObject`** — o atalho `mc anonymous set download` concede `ListBucket` junto, e a listagem entrega o nome de toda imagem já enviada, inclusive de cadastro pendente ou rejeitado.
+As imagens dos cadastros vão para um bucket compatível com S3, não para o disco do container. O RustFS cobre o ambiente local; em produção o destino é o Cloudflare R2, e a API não sabe a diferença — mudam endpoint e credenciais.
+
+O MinIO saiu: o console foi removido da edição comunitária em 2025 e o repositório foi arquivado em abril de 2026.
+
+**A política do bucket precisa liberar só `s3:GetObject`.** Liberar `ListBucket` junto entrega o nome de toda imagem já enviada, inclusive de cadastro pendente ou rejeitado. O `rustfs-init` do compose já aplica a política certa.
+
+### Produção no Cloudflare R2
+
+| Variável | Valor |
+|---|---|
+| `S3_ENDPOINT` | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` |
+| `S3_REGION` | `auto` (`us-east-1` e vazio são apelidos dele) |
+| `S3_PUBLIC_BASE_URL` | o domínio público do bucket, **não** o endpoint da API |
+
+O R2 **não tem ACL nem bucket policy**: acesso público se liga pelo subdomínio `r2.dev` do bucket ou, de preferência, por um domínio próprio. Isso elimina a armadilha do `ListBucket` — esses endereços servem objeto por objeto e não listam nada.
 
 A imagem da API é Debian slim, e não Alpine, porque o Diesel linka com `libpq`.
 
