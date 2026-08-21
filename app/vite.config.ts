@@ -13,7 +13,6 @@ const envSchema = z.object({
 });
 
 const DEFAULT_SITE_URL = "http://localhost:5173";
-const DEFAULT_API_URL = "http://localhost:8080";
 
 /**
  * Content-Security-Policy do site.
@@ -36,8 +35,8 @@ function csp(apiUrl: string, inlineScriptHashes: string[]) {
     // 'unsafe-inline' vale para atributo style, não para <script>.
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    `img-src 'self' data: blob: ${apiUrl} ${mapbox}`,
-    `connect-src 'self' ${apiUrl} ${mapbox}`,
+    `img-src 'self' data: blob: ${[apiUrl, mapbox].filter(Boolean).join(" ")}`,
+    `connect-src 'self' ${[apiUrl, mapbox].filter(Boolean).join(" ")}`,
     // Nada de plugin, nada de <base> reescrito, nada de iframe.
     "object-src 'none'",
     "base-uri 'none'",
@@ -143,7 +142,13 @@ export default defineConfig(({ mode }) => {
   }
 
   const siteUrl = (env.VITE_SITE_URL || DEFAULT_SITE_URL).replace(/\/$/, "");
-  const apiUrl = (env.VITE_API_URL || DEFAULT_API_URL).replace(/\/$/, "");
+  // Ausente significa "não há API": o app roda com dados de demonstração e o
+  // CSP não precisa liberar origem nenhuma para chamadas.
+  const apiUrl = (env.VITE_API_URL ?? "").trim().replace(/\/$/, "");
+
+  if (mode === "production" && apiUrl === "") {
+    console.warn("⚠️  VITE_API_URL vazia: build em modo de demonstração, com dados estáticos");
+  }
 
   if (mode === "production" && !env.VITE_SITE_URL) {
     console.warn(

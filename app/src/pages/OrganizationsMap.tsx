@@ -85,14 +85,19 @@ function OrganizationsMap() {
   });
   const [mapIcon, setMapIcon] = useState(createScaledIcon(5.1));
 
-  useEffect(() => {
-    api.get("organizations").then((response) => {
-      const organizations = response.data;
+  const [loadError, setLoadError] = useState(false);
 
-      if (organizations) {
-        setOrganizations(organizations);
-      }
-    });
+  useEffect(() => {
+    api
+      .get("organizations")
+      .then((response) => {
+        if (response.data) {
+          setOrganizations(response.data);
+        }
+      })
+      // Sem isto, API fora do ar virava mapa vazio sem explicação — e mapa
+      // vazio parece "não há coletivos", não "não consegui carregar".
+      .catch(() => setLoadError(true));
   }, []);
 
   const handleZoomChange = useCallback((newZoom: number) => {
@@ -113,6 +118,16 @@ function OrganizationsMap() {
               Você sabia que são mais de 260 atores que compõem nosso cenário?
             </p>
           </header>
+
+          {loadError && (
+            <p
+              role="alert"
+              className="rounded-md border border-solid border-destructive/40 bg-destructive/10 p-3 font-sans text-sm text-destructive"
+            >
+              Não consegui carregar os coletivos. Verifique se a API está no ar e recarregue a
+              página.
+            </p>
+          )}
         </aside>
 
         <MapContainer

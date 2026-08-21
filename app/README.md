@@ -51,9 +51,13 @@ Sem `VITE_SITE_URL`, o build de produção avisa no console e cai em `http://loc
 
 Com `VITE_API_URL` **vazia**, o app não chama API nenhuma: um adapter do axios responde com os dados estáticos de `src/services/seed/`. Serve para publicar o front sozinho — numa preview da Vercel, por exemplo — e revisar telas antes de a API existir num servidor.
 
+Basta **não definir** a variável — é o que acontece numa hospedagem onde ninguém a configurou. Localmente, deixe vazia ou remova a linha do `.env`:
+
 ```bash
-VITE_API_URL=            # vazio liga a demonstração
+VITE_API_URL=            # vazia (ou ausente) liga a demonstração
 ```
+
+O build avisa no console quando sai em modo de demonstração, para o modo não passar despercebido num deploy de produção.
 
 O que muda:
 
@@ -112,6 +116,12 @@ Cadastro novo entra como pendente e só aparece no mapa depois que um moderador 
 `index.html` carrega as meta tags estáticas e `useSeo` ajusta título, descrição e canonical por rota. `robots.txt` e `sitemap.xml` são gerados no build por um plugin do Vite, a partir de `VITE_SITE_URL` — por isso não estão em `public/`, onde arquivos são copiados sem substituição de variável.
 
 **Limitação conhecida:** o app é uma SPA sem SSR. O Google executa JS e indexa normalmente, mas os robôs de preview (WhatsApp, Instagram, Facebook, Twitter) não executam — eles leem só o `index.html`. Compartilhar o link de um rolê específico mostra o preview genérico da home até que as rotas sejam pré-renderizadas. Falta também um `public/og-cover.png` de 1200×630, referenciado pelas tags Open Graph.
+
+## Deploy na Vercel
+
+O `vercel.json` reescreve qualquer caminho para o `index.html`. Sem ele, abrir `/raves` direto na barra de endereço — ou apertar F5 estando lá — devolve **404 da Vercel**, porque não existe esse arquivo no disco: só a home funcionaria, e a navegação por dentro do app esconderia o problema. Arquivos estáticos continuam sendo servidos normalmente, porque a Vercel consulta o sistema de arquivos antes de aplicar rewrite.
+
+Variáveis a configurar no projeto: as três do Mapbox, `VITE_SITE_URL` com a URL da preview, e `VITE_API_URL` **ausente** enquanto não houver API publicada.
 
 ## Contribuindo
 

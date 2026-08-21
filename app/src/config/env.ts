@@ -21,7 +21,10 @@ const envSchema = z.object({
    */
   VITE_API_URL: z
     .string()
-    .default("http://localhost:8080")
+    // Sem valor, o app assume que não há API e usa os dados de demonstração.
+    // O default não pode ser localhost: numa hospedagem, "não configurado"
+    // viraria uma chamada para a máquina de quem está visitando o site.
+    .default("")
     .refine((value) => {
       if (value.trim() === "") return true;
 
