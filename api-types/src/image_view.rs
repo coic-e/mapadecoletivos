@@ -8,10 +8,13 @@ pub struct ImageView {
 }
 
 impl ImageView {
+    /// `base_url` é a base pública do bucket — em produção, provavelmente um
+    /// CDN na frente dele. O banco guarda só a chave do objeto, então trocar de
+    /// provedor ou pôr um CDN na frente não exige migração de dados.
     pub fn render(image: &Image, base_url: &str) -> Self {
         ImageView {
             id: image.id,
-            url: format!("{}/uploads/{}", base_url, image.path),
+            url: format!("{}/{}", base_url.trim_end_matches('/'), image.path),
         }
     }
 

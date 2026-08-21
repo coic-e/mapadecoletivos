@@ -4,13 +4,11 @@ use argon2::password_hash::rand_core::{OsRng, RngCore};
 use bigdecimal::BigDecimal;
 use futures_util::stream::StreamExt;
 use std::collections::HashMap;
-use std::fs;
-use std::io::Write;
-use std::path::PathBuf;
 use std::str::FromStr;
 
 use crate::config::AppConfig;
 use crate::errors::ApiError;
+use crate::storage::Storage;
 
 /// Bytes que bastam para reconhecer os formatos aceitos. WebP é o mais longo:
 /// "RIFF" + 4 bytes de tamanho + "WEBP".
@@ -53,6 +51,17 @@ impl ImageKind {
             ImageKind::Png => "png",
             ImageKind::Gif => "gif",
             ImageKind::Webp => "webp",
+        }
+    }
+
+    /// Content-type gravado no objeto. Vem da detecção por conteúdo, nunca do
+    /// que o cliente declarou.
+    fn content_type(self) -> &'static str {
+        match self {
+            ImageKind::Jpeg => "image/jpeg",
+            ImageKind::Png => "image/png",
+            ImageKind::Gif => "image/gif",
+            ImageKind::Webp => "image/webp",
         }
     }
 }
@@ -100,12 +109,12 @@ fn random_filename(extension: &str) -> String {
     name
 }
 
-/// Apaga o que já foi gravado quando o resto da requisição não vinga. Sem isso
-/// um envio interrompido no meio deixa lixo permanente no disco.
-fn abort_with(upload_dir: &str, written: &[UploadedFile], error: ApiError) -> ApiError {
-    let filenames: Vec<String> = written.iter().map(|f| f.filename.clone()).collect();
+/// Apaga o que já subiu quando o resto da requisição não vinga. Sem isso um
+/// envio interrompido no meio deixa objeto órfão no bucket para sempre.
+async fn abort_with(storage: &Storage, written: &[UploadedFile], error: ApiError) -> ApiError {
+    let keys: Vec<String> = written.iter().map(|f| f.filename.clone()).collect();
 
-    cleanup_files(upload_dir, &filenames);
+    storage.remove(&keys).await;
 
     error
 }
@@ -113,6 +122,7 @@ fn abort_with(upload_dir: &str, written: &[UploadedFile], error: ApiError) -> Ap
 pub async fn process_multipart(
     mut payload: Multipart,
     config: &AppConfig,
+    storage: &Storage,
 ) -> Result<MultipartData, ApiError> {
     let mut uploaded_files: Vec<UploadedFile> = Vec::new();
     let mut fields = HashMap::new();
@@ -121,171 +131,134 @@ pub async fn process_multipart(
     // arquivos pequenos não escapem do limite individual.
     let mut request_size = 0usize;
 
-    // Ensure upload directory exists
-    fs::create_dir_all(&config.upload_dir)
-        .map_err(|e| ApiError::InternalError(format!("Falha ao criar diretório de upload: {e}")))?;
-
     while let Some(field) = payload.next().await {
-        let mut field = field.map_err(|e| {
-            abort_with(
-                &config.upload_dir,
-                &uploaded_files,
-                ApiError::FileUploadError(format!("Envio malformado: {e}")),
-            )
-        })?;
+        let mut field = match field {
+            Ok(field) => field,
+            Err(e) => {
+                return Err(abort_with(
+                    storage,
+                    &uploaded_files,
+                    ApiError::FileUploadError(format!("Envio malformado: {e}")),
+                )
+                .await);
+            }
+        };
 
         field_count += 1;
 
         if field_count > MAX_MULTIPART_FIELDS {
             return Err(abort_with(
-                &config.upload_dir,
+                storage,
                 &uploaded_files,
                 ApiError::PayloadTooLarge("Requisição com campos demais".to_string()),
-            ));
+            )
+            .await);
         }
 
-        // Get the field name
         let field_name = field.name().to_string();
-
-        // Check if this is a file field
         let is_file = field.content_disposition().get_filename().is_some();
 
         if is_file && field_name == "images" {
             if uploaded_files.len() >= config.max_files_per_request {
                 return Err(abort_with(
-                    &config.upload_dir,
+                    storage,
                     &uploaded_files,
                     ApiError::PayloadTooLarge(format!(
                         "No máximo {} imagens por cadastro",
                         config.max_files_per_request
                     )),
-                ));
+                )
+                .await);
             }
 
-            let mut header: Vec<u8> = Vec::with_capacity(MAGIC_PREFIX_LEN);
-            let mut file: Option<std::fs::File> = None;
-            let mut written: Option<UploadedFile> = None;
-            let mut total_size: usize = 0;
+            // O arquivo é montado em memória antes de subir. O teto por arquivo
+            // já é aplicado enquanto os pedaços chegam, então o buffer não passa
+            // de max_file_size.
+            let mut buffer: Vec<u8> = Vec::new();
+            let mut kind: Option<ImageKind> = None;
+            let mut total_size = 0usize;
 
             while let Some(chunk) = field.next().await {
-                let data = chunk.map_err(|e| {
-                    // O arquivo desta rodada ainda não entrou em uploaded_files.
-                    if let Some(partial) = &written {
-                        cleanup_files(&config.upload_dir, std::slice::from_ref(&partial.filename));
+                let data = match chunk {
+                    Ok(data) => data,
+                    Err(e) => {
+                        return Err(abort_with(
+                            storage,
+                            &uploaded_files,
+                            ApiError::FileUploadError(format!("Envio interrompido: {e}")),
+                        )
+                        .await);
                     }
-
-                    abort_with(
-                        &config.upload_dir,
-                        &uploaded_files,
-                        ApiError::FileUploadError(format!("Envio interrompido: {e}")),
-                    )
-                })?;
+                };
 
                 total_size += data.len();
                 request_size += data.len();
 
                 if total_size > config.max_file_size || request_size > config.max_request_size {
-                    if let Some(partial) = &written {
-                        cleanup_files(&config.upload_dir, std::slice::from_ref(&partial.filename));
-                    }
-
                     return Err(abort_with(
-                        &config.upload_dir,
+                        storage,
                         &uploaded_files,
                         ApiError::PayloadTooLarge(format!(
                             "Cada imagem pode ter no máximo {} bytes",
                             config.max_file_size
                         )),
-                    ));
+                    )
+                    .await);
                 }
 
-                // Enquanto o formato não estiver confirmado, nada toca o disco.
-                match file.as_mut() {
-                    None => {
-                        header.extend_from_slice(&data);
+                buffer.extend_from_slice(&data);
 
-                        if header.len() >= MAGIC_PREFIX_LEN {
-                            let kind = detect_image_kind(&header).ok_or_else(|| {
-                                abort_with(
-                                    &config.upload_dir,
-                                    &uploaded_files,
-                                    ApiError::FileUploadError(
-                                        "Envie imagens JPEG, PNG, GIF ou WebP".to_string(),
-                                    ),
-                                )
-                            })?;
-
-                            let filename = random_filename(kind.extension());
-                            let filepath = PathBuf::from(&config.upload_dir).join(&filename);
-
-                            let mut handle = std::fs::File::create(&filepath).map_err(|e| {
-                                abort_with(
-                                    &config.upload_dir,
-                                    &uploaded_files,
-                                    ApiError::InternalError(format!("Falha ao gravar upload: {e}")),
-                                )
-                            })?;
-
-                            handle.write_all(&header).map_err(|e| {
-                                cleanup_files(&config.upload_dir, std::slice::from_ref(&filename));
-
-                                abort_with(
-                                    &config.upload_dir,
-                                    &uploaded_files,
-                                    ApiError::InternalError(format!("Falha ao gravar upload: {e}")),
-                                )
-                            })?;
-
-                            written = Some(UploadedFile {
-                                filename: filename.clone(),
-                            });
-                            file = Some(handle);
+                // Formato conferido assim que há bytes de assinatura: envio de
+                // arquivo que não é imagem morre antes de subir qualquer coisa.
+                if kind.is_none() && buffer.len() >= MAGIC_PREFIX_LEN {
+                    match detect_image_kind(&buffer) {
+                        Some(detected) => kind = Some(detected),
+                        None => {
+                            return Err(abort_with(
+                                storage,
+                                &uploaded_files,
+                                ApiError::FileUploadError(
+                                    "Envie imagens JPEG, PNG, GIF ou WebP".to_string(),
+                                ),
+                            )
+                            .await);
                         }
                     }
-                    Some(handle) => {
-                        handle.write_all(&data).map_err(|e| {
-                            if let Some(partial) = &written {
-                                cleanup_files(
-                                    &config.upload_dir,
-                                    std::slice::from_ref(&partial.filename),
-                                );
-                            }
-
-                            abort_with(
-                                &config.upload_dir,
-                                &uploaded_files,
-                                ApiError::InternalError(format!("Falha ao gravar upload: {e}")),
-                            )
-                        })?;
-                    }
                 }
             }
 
-            match written {
-                Some(uploaded) => uploaded_files.push(uploaded),
-                // Terminou antes dos bytes de assinatura: não é imagem válida.
-                None => {
-                    return Err(abort_with(
-                        &config.upload_dir,
-                        &uploaded_files,
-                        ApiError::FileUploadError(
-                            "Envie imagens JPEG, PNG, GIF ou WebP".to_string(),
-                        ),
-                    ));
-                }
+            // Arquivo menor que a assinatura nunca chegou a ser reconhecido.
+            let Some(kind) = kind else {
+                return Err(abort_with(
+                    storage,
+                    &uploaded_files,
+                    ApiError::FileUploadError("Envie imagens JPEG, PNG, GIF ou WebP".to_string()),
+                )
+                .await);
+            };
+
+            let key = random_filename(kind.extension());
+
+            if let Err(e) = storage.put_image(&key, buffer, kind.content_type()).await {
+                return Err(abort_with(storage, &uploaded_files, e).await);
             }
+
+            uploaded_files.push(UploadedFile { filename: key });
         } else {
-            // Process text field
             let mut field_data = Vec::new();
 
             while let Some(chunk) = field.next().await {
-                let data = chunk.map_err(|e| {
-                    abort_with(
-                        &config.upload_dir,
-                        &uploaded_files,
-                        ApiError::FileUploadError(format!("Envio interrompido: {e}")),
-                    )
-                })?;
+                let data = match chunk {
+                    Ok(data) => data,
+                    Err(e) => {
+                        return Err(abort_with(
+                            storage,
+                            &uploaded_files,
+                            ApiError::FileUploadError(format!("Envio interrompido: {e}")),
+                        )
+                        .await);
+                    }
+                };
 
                 request_size += data.len();
 
@@ -293,23 +266,27 @@ pub async fn process_multipart(
                     || request_size > config.max_request_size
                 {
                     return Err(abort_with(
-                        &config.upload_dir,
+                        storage,
                         &uploaded_files,
                         ApiError::PayloadTooLarge(format!("Campo {field_name} é grande demais")),
-                    ));
+                    )
+                    .await);
                 }
 
                 field_data.extend_from_slice(&data);
             }
 
-            // Convert bytes to string
-            let field_value = String::from_utf8(field_data).map_err(|_| {
-                abort_with(
-                    &config.upload_dir,
-                    &uploaded_files,
-                    ApiError::FileUploadError(format!("Campo {field_name} não é texto válido")),
-                )
-            })?;
+            let field_value = match String::from_utf8(field_data) {
+                Ok(value) => value,
+                Err(_) => {
+                    return Err(abort_with(
+                        storage,
+                        &uploaded_files,
+                        ApiError::FileUploadError(format!("Campo {field_name} não é texto válido")),
+                    )
+                    .await);
+                }
+            };
 
             fields.insert(field_name, field_value);
         }
@@ -319,20 +296,6 @@ pub async fn process_multipart(
         files: uploaded_files,
         fields,
     })
-}
-
-pub fn cleanup_files(upload_dir: &str, filenames: &[String]) {
-    for filename in filenames {
-        // Defesa em profundidade: mesmo os nomes sendo gerados aqui, um caminho
-        // com separador nunca deveria chegar a um remove_file.
-        if filename.contains('/') || filename.contains('\\') || filename.contains("..") {
-            log::warn!("nome de arquivo suspeito ignorado na limpeza: {filename}");
-            continue;
-        }
-
-        let filepath = PathBuf::from(upload_dir).join(filename);
-        let _ = fs::remove_file(filepath); // Ignore errors on cleanup
-    }
 }
 
 // Helper to parse BigDecimal from string field

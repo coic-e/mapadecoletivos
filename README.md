@@ -31,8 +31,13 @@ Sobe dois serviços:
 
 | Serviço | Container | Porta | Detalhes |
 |---|---|---|---|
-| Postgres 16 | `rave-map-db` | 5432 | usuário `docker`, senha `ravemap`, banco `rave_map` |
-| API Rust | `rave-map-rust-api` | 8080 | espera o healthcheck do banco |
+| Postgres 16 | `rave-map-db` | 5432 | usuário `docker`, banco `rave_map` |
+| MinIO | `rave-map-minio` | 9000 / 9001 | bucket das imagens; 9001 é o console web |
+| API Rust | `rave-map-rust-api` | 8080 | espera banco e bucket ficarem prontos |
+
+As portas ficam publicadas só em `127.0.0.1`, e o compose exige um `.env` na raiz — copie de `.env.example` e preencha. Não há valor padrão para segredo: a API recusa subir com os de exemplo.
+
+As imagens dos cadastros vão para um bucket compatível com S3, não para o disco do container. O MinIO cobre o ambiente local; em produção troque endpoint e credenciais por S3, R2 ou Spaces. **A política do bucket precisa liberar só `s3:GetObject`** — o atalho `mc anonymous set download` concede `ListBucket` junto, e a listagem entrega o nome de toda imagem já enviada, inclusive de cadastro pendente ou rejeitado.
 
 A imagem da API é Debian slim, e não Alpine, porque o Diesel linka com `libpq`.
 

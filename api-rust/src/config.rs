@@ -36,7 +36,6 @@ pub struct AppConfig {
     pub database_url: String,
     pub server_host: String,
     pub server_port: u16,
-    pub upload_dir: String,
     /// Teto por arquivo enviado.
     pub max_file_size: usize,
     /// Quantos arquivos um cadastro pode mandar de uma vez.
@@ -60,6 +59,52 @@ pub struct AppConfig {
     pub submission_rate_limit: u32,
     /// Janela dos dois limites acima, em segundos.
     pub rate_limit_window_secs: u64,
+    pub storage: StorageConfig,
+}
+
+/// Bucket compatível com S3 onde as imagens ficam. MinIO no ambiente local,
+/// S3/R2/Spaces em produção — muda só endpoint e credenciais.
+#[derive(Debug, Clone)]
+pub struct StorageConfig {
+    /// Vazio significa AWS S3 de verdade, que dispensa endpoint explícito.
+    pub endpoint: String,
+    pub region: String,
+    pub bucket: String,
+    pub access_key: String,
+    pub secret_key: String,
+    /// Como o navegador chega nas imagens. Separado do endpoint porque em
+    /// produção costuma ser um CDN na frente do bucket.
+    pub public_base_url: String,
+    /// MinIO endereça por caminho (host/bucket/chave); a AWS, por subdomínio.
+    pub force_path_style: bool,
+}
+
+impl StorageConfig {
+    fn from_env() -> Result<Self, ConfigError> {
+        let bucket = env::var("S3_BUCKET").map_err(|_| ConfigError::Missing("S3_BUCKET"))?;
+        let endpoint = env::var("S3_ENDPOINT").unwrap_or_default();
+
+        // Sem base pública explícita, monta a do MinIO local: endpoint/bucket.
+        let public_base_url = env::var("S3_PUBLIC_BASE_URL").unwrap_or_else(|_| {
+            if endpoint.is_empty() {
+                format!("https://{bucket}.s3.amazonaws.com")
+            } else {
+                format!("{}/{bucket}", endpoint.trim_end_matches('/'))
+            }
+        });
+
+        Ok(StorageConfig {
+            access_key: env::var("S3_ACCESS_KEY")
+                .map_err(|_| ConfigError::Missing("S3_ACCESS_KEY"))?,
+            secret_key: env::var("S3_SECRET_KEY")
+                .map_err(|_| ConfigError::Missing("S3_SECRET_KEY"))?,
+            region: env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
+            force_path_style: parse_var("S3_FORCE_PATH_STYLE", !endpoint.is_empty())?,
+            endpoint,
+            bucket,
+            public_base_url,
+        })
+    }
 }
 
 fn parse_var<T: std::str::FromStr>(key: &'static str, default: T) -> Result<T, ConfigError> {
@@ -111,12 +156,12 @@ impl AppConfig {
                 .map_err(|_| ConfigError::Missing("DATABASE_URL"))?,
             server_host: env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             server_port: parse_var("SERVER_PORT", 8080u16)?,
-            upload_dir: env::var("UPLOAD_DIR").unwrap_or_else(|_| "uploads".to_string()),
             max_file_size: parse_var("MAX_FILE_SIZE", 5 * 1024 * 1024)?,
             max_files_per_request: parse_var("MAX_FILES_PER_REQUEST", 6usize)?,
             max_field_size: parse_var("MAX_FIELD_SIZE", 16 * 1024)?,
             max_request_size: parse_var("MAX_REQUEST_SIZE", 32 * 1024 * 1024)?,
             base_url: env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string()),
+            storage: StorageConfig::from_env()?,
             jwt_secret,
             jwt_ttl_hours: parse_var("JWT_TTL_HOURS", 8i64)?,
             cors_allowed_origins,

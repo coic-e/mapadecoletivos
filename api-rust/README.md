@@ -199,6 +199,25 @@ GET /health
 
 Returns `OK` status.
 
+## Imagens
+
+Ficam num bucket compatível com S3, nunca no disco do container — disco de container é efêmero e não é compartilhado entre réplicas.
+
+O upload é validado por *magic bytes* antes de subir: o formato sai do conteúdo, não do nome nem do content-type que o cliente mandou, e SVG é recusado por ser documento que executa script. O nome do objeto é sorteado, o content-type gravado vem da detecção, e envio que falha no meio tem os objetos já subidos apagados.
+
+O banco guarda **só a chave do objeto**; a URL é montada na resposta a partir de `S3_PUBLIC_BASE_URL`. Trocar de provedor ou pôr um CDN na frente não exige migração de dados.
+
+| Variável | Para quê |
+|---|---|
+| `S3_ENDPOINT` | vazio para AWS S3; `http://minio:9000` no compose |
+| `S3_BUCKET` | nome do bucket |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | credenciais |
+| `S3_PUBLIC_BASE_URL` | como o navegador chega nas imagens (CDN, se houver) |
+| `S3_REGION` | padrão `us-east-1` |
+| `S3_FORCE_PATH_STYLE` | padrão: ligado quando há endpoint (MinIO), desligado na AWS |
+
+Em produção, a política do bucket deve permitir apenas `s3:GetObject` em `arn:aws:s3:::<bucket>/*`. Liberar `ListBucket` expõe o nome de toda imagem enviada, inclusive de cadastros que a moderação nunca aprovou.
+
 ## Moderação
 
 Cadastro criado pelo site nasce com `status = "pending"` e **não aparece nas rotas públicas**. `GET /organizations` e `GET /organizations/{id}` só enxergam `approved` — um cadastro pendente responde 404, e não "existe mas está escondido".

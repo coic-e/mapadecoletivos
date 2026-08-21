@@ -22,6 +22,57 @@ services:
       retries: 10
     networks:
       - rave-map-network
+  # Bucket local compatível com S3. Em produção o lugar dele é S3, R2 ou
+  # Spaces — a API não sabe a diferença, muda só endpoint e credenciais.
+  minio:
+    image: minio/minio:latest
+    container_name: rave-map-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY:?defina S3_ACCESS_KEY no .env}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:?defina S3_SECRET_KEY no .env}
+    ports:
+      # 9000 é a API do bucket, 9001 é o console web. Só no localhost.
+      - 127.0.0.1:9000:9000
+      - 127.0.0.1:9001:9001
+    volumes:
+      - minio:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - rave-map-network
+
+  # Cria o bucket e aplica a política pública. Roda uma vez e sai; a API espera
+  # ele terminar, senão o primeiro upload encontraria bucket inexistente.
+  #
+  # A política é escrita à mão em vez de `mc anonymous set download` porque o
+  # atalho concede ListBucket junto com GetObject — e a listagem entrega o nome
+  # de toda imagem já enviada, inclusive de cadastro pendente ou rejeitado, que
+  # o site não mostra a ninguém. Aqui só GetObject é liberado.
+  minio-init:
+    image: minio/mc:latest
+    container_name: rave-map-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+      mc alias set local http://minio:9000 $${S3_ACCESS_KEY} $${S3_SECRET_KEY} &&
+      mc mb --ignore-existing local/$${S3_BUCKET} &&
+      printf '%s' '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::'$${S3_BUCKET}'/*\"]}]}' > /tmp/policy.json &&
+      mc anonymous set-json /tmp/policy.json local/$${S3_BUCKET}
+      "
+    environment:
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY}
+      - S3_SECRET_KEY=${S3_SECRET_KEY}
+      - S3_BUCKET=${S3_BUCKET:-rave-map}
+    networks:
+      - rave-map-network
+
   rust-api:
     build:
       context: .
@@ -34,7 +85,14 @@ services:
       - DATABASE_URL=postgresql://docker:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@database:5432/rave_map
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080
-      - UPLOAD_DIR=uploads
+      # Bucket das imagens. O endpoint é o nome do serviço na rede do compose;
+      # a base pública é como o navegador chega lá, de fora.
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET=${S3_BUCKET:-rave-map}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:?defina S3_ACCESS_KEY no .env}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:?defina S3_SECRET_KEY no .env}
+      - S3_PUBLIC_BASE_URL=${S3_PUBLIC_BASE_URL:-http://localhost:9000/rave-map}
+      - S3_REGION=${S3_REGION:-us-east-1}
       - MAX_FILE_SIZE=${MAX_FILE_SIZE:-5242880}
       - MAX_FILES_PER_REQUEST=${MAX_FILES_PER_REQUEST:-6}
       - BASE_URL=${BASE_URL:-http://localhost:8080}
@@ -48,11 +106,11 @@ services:
       # Ligue só se houver um proxy reescrevendo X-Forwarded-For na frente.
       - TRUST_PROXY=${TRUST_PROXY:-false}
       - RUST_LOG=info
-    volumes:
-      - ./uploads:/app/uploads
     depends_on:
       database:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     # O container não precisa escrever em lugar nenhum além de uploads e /tmp.
     read_only: true
     tmpfs:
@@ -68,3 +126,4 @@ networks:
 
 volumes:
   pgdata:
+  minio:

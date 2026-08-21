@@ -8,8 +8,9 @@ use crate::auth::AdminIdentity;
 use crate::config::AppConfig;
 use crate::db::DbPool;
 use crate::errors::ApiError;
-use crate::handlers::upload::{cleanup_files, parse_bigdecimal, process_multipart};
+use crate::handlers::upload::{parse_bigdecimal, process_multipart};
 use crate::rate_limit::{client_key, SubmissionRateLimiter};
+use crate::storage::Storage;
 use api_types::OrganizationView;
 use db_types::organization::{slugify, ModerationStatus, NewOrganization};
 
@@ -112,7 +113,8 @@ pub async fn moderation_index(
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;
 
-    let views = OrganizationView::render_many(organizations_with_images, &config.base_url);
+    let views =
+        OrganizationView::render_many(organizations_with_images, &config.storage.public_base_url);
 
     Ok(HttpResponse::Ok().json(views))
 }
@@ -139,7 +141,7 @@ pub async fn moderation_show(
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;
 
-    let view = OrganizationView::render(&organization, &images, &config.base_url);
+    let view = OrganizationView::render(&organization, &images, &config.storage.public_base_url);
 
     Ok(HttpResponse::Ok().json(view))
 }
@@ -212,7 +214,7 @@ async fn review(
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;
 
-    let view = OrganizationView::render(&organization, &images, &config.base_url);
+    let view = OrganizationView::render(&organization, &images, &config.storage.public_base_url);
 
     Ok(HttpResponse::Ok().json(view))
 }
@@ -224,14 +226,15 @@ pub async fn create(
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
     limiter: web::Data<SubmissionRateLimiter>,
+    storage: web::Data<Storage>,
 ) -> Result<HttpResponse, ApiError> {
-    // O cadastro é aberto e grava arquivo em disco: sem limite por IP, um
-    // script enche o disco e a fila de moderação em minutos. Conferido antes
-    // de ler o corpo, para nem gastar I/O com quem já estourou a cota.
+    // O cadastro é aberto e grava imagem no bucket: sem limite por IP, um
+    // script enche o bucket e a fila de moderação em minutos. Conferido antes
+    // de ler o corpo, para nem gastar banda com quem já estourou a cota.
     limiter.check(&format!("submit:{}", client_key(&req, &config)))?;
 
     // Extract multipart data (files + text fields)
-    let multipart_data = process_multipart(payload, &config).await?;
+    let multipart_data = process_multipart(payload, &config, &storage).await?;
 
     // Helper to get required field
     let get_field = |name: &str| -> Result<String, ApiError> {
@@ -247,12 +250,12 @@ pub async fn create(
     // Extract and validate images
     if multipart_data.files.is_empty() {
         // Cleanup any uploaded files
-        let filenames: Vec<String> = multipart_data
+        let keys: Vec<String> = multipart_data
             .files
             .iter()
             .map(|f| f.filename.clone())
             .collect();
-        cleanup_files(&config.upload_dir, &filenames);
+        storage.remove(&keys).await;
 
         return Err(ApiError::ValidationError(
             vec![(
@@ -333,35 +336,33 @@ pub async fn create(
     // Validate organization data
     if let Err(validation_errors) = new_organization.validate() {
         // Cleanup uploaded files on validation error
-        let filenames: Vec<String> = multipart_data
+        let keys: Vec<String> = multipart_data
             .files
             .iter()
             .map(|f| f.filename.clone())
             .collect();
-        cleanup_files(&config.upload_dir, &filenames);
+        storage.remove(&keys).await;
 
         return Err(ApiError::from(validation_errors));
     }
 
-    // Get database connection
-    let mut conn = pool.get().map_err(|e| {
-        // Cleanup files on connection error
-        let filenames: Vec<String> = multipart_data
-            .files
-            .iter()
-            .map(|f| f.filename.clone())
-            .collect();
-        cleanup_files(&config.upload_dir, &filenames);
-        ApiError::DatabaseError(e.to_string())
-    })?;
-
-    // Clone data for the blocking operation
-    let files: Vec<String> = multipart_data
+    // A limpeza do bucket é assíncrona, então as chaves ficam prontas antes:
+    // cada saída por erro daqui para baixo apaga o que já subiu.
+    let keys: Vec<String> = multipart_data
         .files
         .iter()
         .map(|f| f.filename.clone())
         .collect();
-    let upload_dir = config.upload_dir.clone();
+
+    let mut conn = match pool.get() {
+        Ok(conn) => conn,
+        Err(e) => {
+            storage.remove(&keys).await;
+            return Err(ApiError::DatabaseError(e.to_string()));
+        }
+    };
+
+    let files = keys.clone();
 
     // Execute business logic in blocking thread
     // Qual das fotos enviadas é a capa, pela ordem de envio.
@@ -374,31 +375,22 @@ pub async fn create(
     let result = web::block(move || {
         actions::create_organization(&mut conn, new_organization, files, cover_index)
     })
-    .await
-    .map_err(|e| {
-        // Cleanup files on blocking error
-        let filenames: Vec<String> = multipart_data
-            .files
-            .iter()
-            .map(|f| f.filename.clone())
-            .collect();
-        cleanup_files(&upload_dir, &filenames);
-        ApiError::InternalError(e.to_string())
-    })?;
+    .await;
 
-    // Handle database result
-    let (organization, images) = result.inspect_err(|_e| {
-        // Cleanup files on database error
-        let filenames: Vec<String> = multipart_data
-            .files
-            .iter()
-            .map(|f| f.filename.clone())
-            .collect();
-        cleanup_files(&config.upload_dir, &filenames);
-    })?;
+    let (organization, images) = match result {
+        Ok(Ok(created)) => created,
+        Ok(Err(e)) => {
+            storage.remove(&keys).await;
+            return Err(e);
+        }
+        Err(e) => {
+            storage.remove(&keys).await;
+            return Err(ApiError::InternalError(e.to_string()));
+        }
+    };
 
     // Render view
-    let view = OrganizationView::render(&organization, &images, &config.base_url);
+    let view = OrganizationView::render(&organization, &images, &config.storage.public_base_url);
 
     Ok(HttpResponse::Created().json(view))
 }
@@ -425,7 +417,7 @@ pub async fn show(
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;
 
-    let view = OrganizationView::render(&organization, &images, &config.base_url);
+    let view = OrganizationView::render(&organization, &images, &config.storage.public_base_url);
 
     Ok(HttpResponse::Ok().json(view))
 }
@@ -447,7 +439,7 @@ pub async fn index(
             .await
             .map_err(|e| ApiError::InternalError(e.to_string()))??;
 
-    let base_url = config.base_url.clone();
+    let base_url = config.storage.public_base_url.clone();
     let views = OrganizationView::render_many(organizations_with_images, &base_url);
 
     Ok(HttpResponse::Ok().json(views))
