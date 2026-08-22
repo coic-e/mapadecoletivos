@@ -193,11 +193,23 @@ Os gêneros aceitos estão em `MUSIC_GENRES`, em `db-types/src/organization.rs`.
 
 ### Healthcheck
 
-```http
-GET /health
+São duas sondas, porque respondem perguntas diferentes.
+
+| Rota | Responde | Verifica |
+|---|---|---|
+| `GET /health` | 200 sempre que o processo está de pé | nada externo |
+| `GET /health/ready` | 200 ou **503** | banco e bucket, com teto de 3s cada |
+
+```json
+// GET /health/ready com o bucket fora do ar
+{ "status": "unavailable", "database": "ok", "storage": { "error": "tempo esgotado" } }
 ```
 
-Returns `OK` status.
+Use `/health` para política de **reinício**: derrubar o container porque o Postgres piscou não conserta nada e ainda tira a API do ar junto. Use `/health/ready` para decidir **roteamento de tráfego** — é o que diz se esta instância consegue atender.
+
+No EasyPanel, o campo de health check é o `/health/ready` se ele apenas marcar o serviço como indisponível; se ele reiniciar o container ao falhar, aponte para `/health`.
+
+A resposta diz **qual** dependência falhou, de propósito: sonda que só responde "não" obriga quem está de plantão a adivinhar.
 
 ## Imagens
 

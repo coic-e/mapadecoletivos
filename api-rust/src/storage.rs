@@ -94,6 +94,21 @@ impl Storage {
         }
     }
 
+    /// Confere que o bucket responde e que as credenciais valem.
+    ///
+    /// HeadBucket é a operação mais barata que exercita autenticação e
+    /// existência do bucket de uma vez — não lista nada nem transfere objeto.
+    pub async fn check(&self) -> Result<(), ApiError> {
+        self.client
+            .head_bucket()
+            .bucket(&self.bucket)
+            .send()
+            .await
+            .map_err(|e| ApiError::InternalError(format!("bucket inacessível: {e}")))?;
+
+        Ok(())
+    }
+
     /// URL pública de um objeto, que é o que vai para o navegador.
     pub fn public_url(&self, key: &str) -> String {
         format!("{}/{}", self.public_base_url, key)

@@ -2,9 +2,10 @@ use std::time::Duration;
 
 use actix_cors::Cors;
 use actix_web::http::header;
-use actix_web::{middleware, web, App, HttpResponse, HttpServer};
+use actix_web::{middleware, web, App, HttpServer};
 
 use api_rust::handlers::upload::payload_config;
+use api_rust::migrations;
 use api_rust::rate_limit::{LoginRateLimiter, SubmissionRateLimiter};
 use api_rust::storage::Storage;
 use api_rust::{config::AppConfig, db::establish_connection_pool, domains};
@@ -48,6 +49,13 @@ async fn main() -> std::io::Result<()> {
     log::info!("Origens CORS: {:?}", config.cors_allowed_origins);
 
     // Establish database connection pool
+    // Antes do pool e antes de escutar: se o esquema não estiver no lugar, é
+    // melhor não subir do que atender requisição com o banco a meio caminho.
+    if let Err(e) = migrations::run(&config.database_url) {
+        log::error!("{e}");
+        std::process::exit(1);
+    }
+
     let pool = establish_connection_pool(&config);
 
     // Clone values needed for server closure
@@ -111,11 +119,7 @@ async fn main() -> std::io::Result<()> {
             .configure(domains::organizations::configure)
             .configure(domains::admins::configure)
             .configure(domains::edit_requests::configure)
-            // Health check endpoint
-            .route(
-                "/health",
-                web::get().to(|| async { HttpResponse::Ok().body("OK") }),
-            )
+            .configure(domains::health::configure)
     })
     .bind((server_host.as_str(), server_port))?
     .run()
