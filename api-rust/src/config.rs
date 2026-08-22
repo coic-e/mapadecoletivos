@@ -175,3 +175,326 @@ impl AppConfig {
         })
     }
 }
+
+/// Configuração completa, com valores plausíveis, para os testes do crate.
+///
+/// Existe para que um campo novo em AppConfig apareça num lugar só, e não em
+/// cada módulo que precisa de uma configuração para exercitar outra coisa.
+#[cfg(test)]
+impl AppConfig {
+    pub(crate) fn sample() -> Self {
+        AppConfig {
+            database_url: String::new(),
+            server_host: "127.0.0.1".to_string(),
+            server_port: 8080,
+            max_file_size: 5 * 1024 * 1024,
+            max_files_per_request: 6,
+            max_field_size: 16 * 1024,
+            max_request_size: 32 * 1024 * 1024,
+            base_url: "http://localhost:8080".to_string(),
+            jwt_secret: "segredo-de-teste-suficientemente-longo-1234".to_string(),
+            jwt_ttl_hours: 8,
+            cors_allowed_origins: vec!["http://localhost:5173".to_string()],
+            trust_proxy: false,
+            login_rate_limit: 5,
+            submission_rate_limit: 10,
+            rate_limit_window_secs: 300,
+            storage: StorageConfig {
+                endpoint: "http://127.0.0.1:9000".to_string(),
+                region: "us-east-1".to_string(),
+                bucket: "rave-map".to_string(),
+                access_key: "chave".to_string(),
+                secret_key: "segredo".to_string(),
+                public_base_url: "http://127.0.0.1:9000/rave-map".to_string(),
+                force_path_style: true,
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// Todas as variáveis que `from_env` enxerga. O teste limpa a lista
+    /// inteira antes de montar o cenário para que o ambiente de quem roda
+    /// `cargo test` não vaze para dentro do caso.
+    const ALL_KEYS: &[&str] = &[
+        "JWT_SECRET",
+        "JWT_TTL_HOURS",
+        "DATABASE_URL",
+        "SERVER_HOST",
+        "SERVER_PORT",
+        "MAX_FILE_SIZE",
+        "MAX_FILES_PER_REQUEST",
+        "MAX_FIELD_SIZE",
+        "MAX_REQUEST_SIZE",
+        "BASE_URL",
+        "CORS_ALLOWED_ORIGINS",
+        "TRUST_PROXY",
+        "LOGIN_RATE_LIMIT",
+        "SUBMISSION_RATE_LIMIT",
+        "RATE_LIMIT_WINDOW_SECS",
+        "S3_BUCKET",
+        "S3_ENDPOINT",
+        "S3_PUBLIC_BASE_URL",
+        "S3_ACCESS_KEY",
+        "S3_SECRET_KEY",
+        "S3_REGION",
+        "S3_FORCE_PATH_STYLE",
+    ];
+
+    /// O ambiente é global ao processo e o `cargo test` roda os casos em
+    /// paralelo: sem este lock, um teste apagaria a variável que o outro
+    /// acabou de escrever.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    const STRONG_SECRET: &str = "segredo-de-teste-suficientemente-longo-1234";
+
+    /// Cenário mínimo para `from_env` chegar ao fim.
+    fn minimal() -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("JWT_SECRET", STRONG_SECRET),
+            ("DATABASE_URL", "postgres://user:senha@localhost/rave_map"),
+            ("S3_BUCKET", "rave-map"),
+            ("S3_ACCESS_KEY", "chave"),
+            ("S3_SECRET_KEY", "segredo"),
+        ]
+    }
+
+    fn with_env<T>(pairs: &[(&str, &str)], f: impl FnOnce() -> T) -> T {
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        for key in ALL_KEYS {
+            env::remove_var(key);
+        }
+
+        for (key, value) in pairs {
+            env::set_var(key, value);
+        }
+
+        let result = f();
+
+        for key in ALL_KEYS {
+            env::remove_var(key);
+        }
+
+        result
+    }
+
+    /// Monta o cenário mínimo com um ajuste em cima.
+    fn from_env_with(extra: &[(&str, &str)]) -> Result<AppConfig, ConfigError> {
+        let mut pairs = minimal();
+
+        for (key, value) in extra {
+            pairs.retain(|(existing, _)| existing != key);
+            pairs.push((key, value));
+        }
+
+        with_env(&pairs, AppConfig::from_env)
+    }
+
+    fn invalid_key(result: Result<AppConfig, ConfigError>) -> &'static str {
+        match result {
+            Err(ConfigError::Invalid { key, .. }) => key,
+            other => panic!("esperava ConfigError::Invalid, veio {other:?}"),
+        }
+    }
+
+    fn missing_key(result: Result<AppConfig, ConfigError>) -> &'static str {
+        match result {
+            Err(ConfigError::Missing(key)) => key,
+            other => panic!("esperava ConfigError::Missing, veio {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_the_minimal_environment() {
+        let config = from_env_with(&[]).expect("o cenário mínimo deveria bastar");
+
+        assert_eq!(config.server_port, 8080);
+        assert_eq!(config.jwt_ttl_hours, 8);
+        assert!(!config.trust_proxy, "proxy só é confiado quando pedido");
+        assert_eq!(config.cors_allowed_origins, vec!["http://localhost:5173"]);
+    }
+
+    #[test]
+    fn refuses_to_start_without_the_required_variables() {
+        assert_eq!(
+            missing_key(with_env(&[], AppConfig::from_env)),
+            "JWT_SECRET"
+        );
+
+        let sem_banco: Vec<_> = minimal()
+            .into_iter()
+            .filter(|(key, _)| *key != "DATABASE_URL")
+            .collect();
+
+        assert_eq!(
+            missing_key(with_env(&sem_banco, AppConfig::from_env)),
+            "DATABASE_URL"
+        );
+
+        let sem_bucket: Vec<_> = minimal()
+            .into_iter()
+            .filter(|(key, _)| *key != "S3_BUCKET")
+            .collect();
+
+        assert_eq!(
+            missing_key(with_env(&sem_bucket, AppConfig::from_env)),
+            "S3_BUCKET"
+        );
+    }
+
+    #[test]
+    fn refuses_a_short_jwt_secret() {
+        // Um segredo curto de HS256 cai por força bruta offline a partir de um
+        // único token emitido.
+        assert_eq!(
+            invalid_key(from_env_with(&[("JWT_SECRET", "curto-demais")])),
+            "JWT_SECRET"
+        );
+    }
+
+    #[test]
+    fn refuses_the_example_secrets_that_are_public_in_the_repository() {
+        for weak in WEAK_JWT_SECRETS {
+            assert_eq!(
+                invalid_key(from_env_with(&[("JWT_SECRET", weak)])),
+                "JWT_SECRET",
+                "{weak:?} está no repositório e não pode virar chave de produção"
+            );
+        }
+    }
+
+    #[test]
+    fn refuses_a_wildcard_cors_origin() {
+        assert_eq!(
+            invalid_key(from_env_with(&[("CORS_ALLOWED_ORIGINS", "*")])),
+            "CORS_ALLOWED_ORIGINS"
+        );
+
+        assert_eq!(
+            invalid_key(from_env_with(&[(
+                "CORS_ALLOWED_ORIGINS",
+                "https://mapa.exemplo.com, *"
+            )])),
+            "CORS_ALLOWED_ORIGINS",
+            "o curinga no meio da lista vale o mesmo que sozinho"
+        );
+    }
+
+    #[test]
+    fn splits_and_trims_the_cors_origin_list() {
+        let config = from_env_with(&[(
+            "CORS_ALLOWED_ORIGINS",
+            " https://mapa.exemplo.com , http://localhost:5173 ,, ",
+        )])
+        .unwrap();
+
+        assert_eq!(
+            config.cors_allowed_origins,
+            vec!["https://mapa.exemplo.com", "http://localhost:5173"],
+            "entrada vazia entre vírgulas não vira origem"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_number_is_an_error_not_a_silent_default() {
+        // O caso que motivou o parse_var: MAX_FILE_SIZE="10 MB" caindo no
+        // default sem ninguém perceber.
+        assert_eq!(
+            invalid_key(from_env_with(&[("MAX_FILE_SIZE", "10 MB")])),
+            "MAX_FILE_SIZE"
+        );
+
+        assert_eq!(
+            invalid_key(from_env_with(&[("SERVER_PORT", "oitenta")])),
+            "SERVER_PORT"
+        );
+
+        assert_eq!(
+            invalid_key(from_env_with(&[("SERVER_PORT", "70000")])),
+            "SERVER_PORT",
+            "porta fora da faixa de u16 não pode virar 8080 em silêncio"
+        );
+    }
+
+    #[test]
+    fn trust_proxy_only_on_an_explicit_yes() {
+        for ligado in ["1", "true", "TRUE"] {
+            assert!(
+                from_env_with(&[("TRUST_PROXY", ligado)])
+                    .unwrap()
+                    .trust_proxy,
+                "{ligado:?} deveria ligar"
+            );
+        }
+
+        // Qualquer outra coisa fica desligado: ligado sem proxy na frente,
+        // qualquer cliente forja o próprio IP e escapa do rate limit.
+        for desligado in ["", "0", "false", "sim", "yes"] {
+            assert!(
+                !from_env_with(&[("TRUST_PROXY", desligado)])
+                    .unwrap()
+                    .trust_proxy,
+                "{desligado:?} não deveria ligar"
+            );
+        }
+    }
+
+    #[test]
+    fn storage_public_url_defaults_to_the_local_bucket() {
+        let config = from_env_with(&[("S3_ENDPOINT", "http://localhost:9000/")]).unwrap();
+
+        assert_eq!(
+            config.storage.public_base_url,
+            "http://localhost:9000/rave-map"
+        );
+        assert!(
+            config.storage.force_path_style,
+            "endpoint próprio endereça por caminho"
+        );
+    }
+
+    #[test]
+    fn storage_public_url_defaults_to_aws_without_an_endpoint() {
+        let config = from_env_with(&[]).unwrap();
+
+        assert_eq!(
+            config.storage.public_base_url,
+            "https://rave-map.s3.amazonaws.com"
+        );
+        assert!(
+            !config.storage.force_path_style,
+            "a AWS endereça por subdomínio"
+        );
+    }
+
+    #[test]
+    fn an_explicit_public_url_wins_over_the_derived_one() {
+        // É o caso de produção: CDN na frente do bucket.
+        let config = from_env_with(&[
+            ("S3_ENDPOINT", "http://rustfs:9000"),
+            ("S3_PUBLIC_BASE_URL", "https://cdn.exemplo.com"),
+        ])
+        .unwrap();
+
+        assert_eq!(config.storage.public_base_url, "https://cdn.exemplo.com");
+    }
+
+    #[test]
+    fn the_error_message_never_carries_the_secret() {
+        // A mensagem vai para o stderr da subida, que costuma acabar em
+        // agregador de log de terceiro.
+        let erro = from_env_with(&[("JWT_SECRET", "curto")]).unwrap_err();
+
+        assert!(
+            !erro.to_string().contains("curto"),
+            "a mensagem não pode repetir o segredo: {erro}"
+        );
+    }
+}

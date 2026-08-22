@@ -99,8 +99,14 @@ impl OrganizationRepository {
             query = query.filter(organizations::status.eq(state.to_string()));
         }
 
-        // Mais antigos primeiro: quem cadastrou antes espera menos.
-        query = query.order(organizations::created_at.asc());
+        // Mais antigos primeiro: quem cadastrou antes espera menos. O id
+        // desempata porque a ordem sustenta a paginação: com dois cadastros no
+        // mesmo carimbo — e `now()` é o mesmo para tudo que entra na mesma
+        // transação — o Postgres pode devolvê-los em ordem diferente a cada
+        // página, e a listagem repetiria uma linha e perderia outra.
+        query = query
+            .order(organizations::created_at.asc())
+            .then_order_by(organizations::id.asc());
 
         if let Some(lim) = limit {
             query = query.limit(lim);

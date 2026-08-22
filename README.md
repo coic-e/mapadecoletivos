@@ -135,6 +135,27 @@ cargo run -p api-rust  # sobe só a API
 cargo fmt && cargo clippy
 ```
 
+### Testes
+
+`cargo test` roda tudo que não depende de serviço externo: validação de cadastro
+e de pedido de correção, configuração de subida, parser de multipart, limites
+por IP, tokens, montagem das respostas e o contrato HTTP (quem entra sem token,
+quais origens o CORS libera, cabeçalhos de segurança).
+
+Os testes que precisam de Postgres — moderação, fila de correções e login —
+rodam só quando `TEST_DATABASE_URL` aponta para um **banco descartável**. Sem
+ela, cada um se anuncia como pulado e a suíte passa mesmo assim.
+
+```bash
+docker compose exec database psql -U docker -d postgres -c "CREATE DATABASE rave_map_test OWNER docker;"
+TEST_DATABASE_URL=postgres://docker:SENHA@127.0.0.1:5432/rave_map_test cargo test
+```
+
+Eles aplicam as migrações sozinhos, montam o cenário que precisam e desfazem
+tudo numa transação no fim. **Não aponte para o banco de desenvolvimento**: os
+casos apagam tabela para chegar ao estado que testam, e a suíte recusa rodar se
+`TEST_DATABASE_URL` for igual a `DATABASE_URL`.
+
 `api-types` e `db-types` existem para separar o que é modelo de banco do que é resposta HTTP: `db-types` guarda as structs do Diesel, `api-types` guarda as views que a API serializa. O front-end só conhece as segundas.
 
 ## Fluxo de trabalho

@@ -1,7 +1,5 @@
 use std::time::Duration;
 
-use actix_cors::Cors;
-use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpServer};
 
 use api_rust::bootstrap::{seed_first_admin, AdminSeed};
@@ -9,7 +7,7 @@ use api_rust::handlers::upload::payload_config;
 use api_rust::migrations;
 use api_rust::rate_limit::{LoginRateLimiter, SubmissionRateLimiter};
 use api_rust::storage::Storage;
-use api_rust::{config::AppConfig, db::establish_connection_pool, domains};
+use api_rust::{config::AppConfig, db::establish_connection_pool, http};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -91,18 +89,6 @@ async fn main() -> std::io::Result<()> {
     ));
 
     HttpServer::new(move || {
-        // Só as origens configuradas, e só o que a aplicação usa de fato. O
-        // permissivo de antes deixava qualquer site na internet ler as
-        // respostas da API pelo navegador de quem visitasse.
-        let mut cors = Cors::default()
-            .allowed_methods(vec!["GET", "POST", "OPTIONS"])
-            .allowed_headers(vec![header::AUTHORIZATION, header::CONTENT_TYPE])
-            .max_age(3600);
-
-        for origin in &config.cors_allowed_origins {
-            cors = cors.allowed_origin(origin);
-        }
-
         App::new()
             .app_data(web::Data::new(pool.clone()))
             .app_data(web::Data::new(config.clone()))
@@ -113,28 +99,10 @@ async fn main() -> std::io::Result<()> {
             // Corpo JSON pequeno: as rotas que recebem JSON só levam login e
             // motivo de rejeição.
             .app_data(web::JsonConfig::default().limit(16 * 1024))
-            .wrap(cors)
-            .wrap(
-                middleware::DefaultHeaders::new()
-                    .add((header::X_CONTENT_TYPE_OPTIONS, "nosniff"))
-                    .add((header::X_FRAME_OPTIONS, "DENY"))
-                    .add((header::REFERRER_POLICY, "no-referrer"))
-                    .add((
-                        header::STRICT_TRANSPORT_SECURITY,
-                        "max-age=31536000; includeSubDomains",
-                    ))
-                    .add(("Cross-Origin-Opener-Policy", "same-origin"))
-                    .add((
-                        "Permissions-Policy",
-                        "geolocation=(), camera=(), microphone=()",
-                    )),
-            )
+            .wrap(http::cors(&config))
+            .wrap(http::security_headers())
             .wrap(middleware::Logger::default())
-            // Domain routes
-            .configure(domains::organizations::configure)
-            .configure(domains::admins::configure)
-            .configure(domains::edit_requests::configure)
-            .configure(domains::health::configure)
+            .configure(http::routes)
     })
     .bind((server_host.as_str(), server_port))?
     .run()

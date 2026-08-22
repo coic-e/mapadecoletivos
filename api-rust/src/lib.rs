@@ -5,6 +5,7 @@ pub mod db;
 pub mod domains;
 pub mod errors;
 pub mod handlers;
+pub mod http;
 pub mod migrations;
 pub mod rate_limit;
 pub mod storage;
