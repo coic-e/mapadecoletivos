@@ -12,7 +12,8 @@ use crate::schema::{edit_requests, organizations};
 /// Editar de verdade é só do admin; isto é a porta de entrada de quem enxerga
 /// o erro e não tem acesso. O pedido entra numa fila e um moderador aplica ou
 /// recusa — o mesmo caminho da moderação de cadastro novo.
-#[derive(Debug, Clone, Queryable, Identifiable, Associations, Serialize, Deserialize)]
+/// Sem `Serialize`: quem sai é `EditRequestView`.
+#[derive(Debug, Clone, Queryable, Identifiable, Associations)]
 #[diesel(belongs_to(Organization, foreign_key = organization_id))]
 #[diesel(table_name = edit_requests)]
 pub struct EditRequest {
