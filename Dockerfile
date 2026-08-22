@@ -1,14 +1,13 @@
-# IMPORTANTE: o contexto de build é a RAIZ DO REPOSITÓRIO, não esta pasta.
+# O contexto de build precisa ser a RAIZ DO REPOSITÓRIO.
 #
-# A API é um crate de um workspace: o build precisa do Cargo.toml e do
-# Cargo.lock da raiz e dos crates api-types e db-types, que ficam fora daqui.
-# Com o contexto apontado para api-rust/, o primeiro COPY falha.
+# A API é um crate de um workspace: o build precisa deste Cargo.toml, do
+# Cargo.lock e dos crates api-types e db-types. Por isso o Dockerfile mora aqui
+# e não em api-rust/ — painéis de deploy costumam usar a pasta do Dockerfile
+# como contexto, e com o contexto em api-rust/ o primeiro COPY falha com
+# "/api-types: not found".
 #
-#   docker build -f api-rust/Dockerfile .          <- da raiz
-#   EasyPanel: Build context "/" e Dockerfile "api-rust/Dockerfile"
-#
-# O arquivo mora nesta pasta porque painéis de deploy procuram o Dockerfile
-# junto do serviço; o contexto continua sendo a raiz.
+#   docker build -f Dockerfile .
+#   EasyPanel: Build path "/" (raiz), não "/api-rust"
 
 # Build stage
 FROM rust:1.97-slim AS builder

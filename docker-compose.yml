@@ -82,10 +82,10 @@ services:
 
   rust-api:
     build:
-      # O contexto é a raiz do workspace, mesmo com o Dockerfile em api-rust/:
-      # o build precisa dos crates api-types e db-types, que ficam fora dela.
+      # O contexto é a raiz do workspace: o build precisa dos crates
+      # api-types e db-types, além do Cargo.toml e do Cargo.lock daqui.
       context: .
-      dockerfile: api-rust/Dockerfile
+      dockerfile: Dockerfile
     container_name: rave-map-rust-api
     restart: unless-stopped
     ports:

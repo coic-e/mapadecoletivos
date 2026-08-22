@@ -88,6 +88,23 @@ cargo run
 
 Documentação completa da API — endpoints, payloads, estrutura — em [`api-rust/README.md`](api-rust/README.md).
 
+## Deploy da API em painel (EasyPanel, Coolify, Dokploy)
+
+O `Dockerfile` fica na **raiz**, e é ali que o contexto de build precisa apontar: a API é um crate de um workspace e o build usa o `Cargo.toml` e o `Cargo.lock` da raiz mais os crates `api-types` e `db-types`.
+
+No EasyPanel, o campo é **Build path**, e ele deriva o contexto dessa pasta — não há como separar contexto e Dockerfile. Deixe em `/`. Apontar para `/api-rust` falha assim:
+
+```
+COPY api-types api-types
+ERROR: "/api-types": not found
+```
+
+As migrações são aplicadas pela própria API na subida, então não há passo manual depois do deploy. O primeiro moderador, esse sim, se cria à mão:
+
+```bash
+docker compose exec rust-api create_admin "Nome" email@dominio.com
+```
+
 ## Workspace Rust
 
 Os comandos rodam da raiz e valem para os três crates:
