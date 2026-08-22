@@ -282,7 +282,9 @@ Todas exigem Bearer token; sem ele, 401.
 | `GET /admin/organizations?status=pending` | Fila de revisão. `status` aceita `pending`, `approved`, `rejected` ou `all`; o padrão é `pending`. Mais antigos primeiro. |
 | `GET /admin/organizations/{id}` | Detalhe, em qualquer estado |
 | `POST /admin/organizations/{id}/approve` | Passa a aparecer no site |
-| `POST /admin/organizations/{id}/reject` | Sai do site. Corpo opcional: `{ "reason": "..." }` |
+| `POST /admin/organizations/{id}/reject` | Sai do site **e apaga as imagens do bucket**. Corpo opcional: `{ "reason": "..." }` |
+
+Rejeitar apaga os arquivos do bucket, e por isso é definitivo: aprovar depois produziria um cadastro sem imagem nenhuma. O motivo é custo — um envio automatizado empurra dezenas de megabytes por vez, e guardar as fotos de tudo que a moderação recusou faz a conta crescer sem nada em troca. As linhas do banco ficam, com o motivo da recusa.
 
 Aprovação e rejeição gravam `reviewed_at` e `reviewed_by`, então dá para saber quem decidiu o quê e quando.
 

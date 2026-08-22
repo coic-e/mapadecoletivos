@@ -355,6 +355,11 @@ function AdminModeration() {
                             placeholder="Motivo da rejeição (opcional, fica registrado)"
                             className="min-h-20"
                           />
+
+                          <p className="font-sans text-xs text-muted-foreground">
+                            Rejeitar apaga as fotos do bucket. O cadastro fica registrado, mas não
+                            dá para aprová-lo depois.
+                          </p>
                           <div className="flex gap-2">
                             <Button
                               variant="destructive"
@@ -379,7 +384,7 @@ function AdminModeration() {
                         </div>
                       ) : (
                         <div className="mt-2 flex flex-wrap gap-2">
-                          {organization.status !== "approved" && (
+                          {organization.status === "pending" && (
                             <Button
                               size="sm"
                               disabled={busyId === organization.id}

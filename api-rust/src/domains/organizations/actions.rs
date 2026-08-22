@@ -98,7 +98,7 @@ pub fn review_organization(
     status: &str,
     reviewed_by: i32,
     rejection_reason: Option<String>,
-) -> Result<(Organization, Vec<db_types::image::Image>), ApiError> {
+) -> Result<(Organization, Vec<db_types::image::Image>, Vec<String>), ApiError> {
     if !ModerationStatus::is_valid(status) {
         return Err(ApiError::ValidationError(
             vec![(
@@ -117,6 +117,17 @@ pub fn review_organization(
 
         OrganizationRepository::set_status(conn, id, status, reviewed_by, rejection_reason)?;
 
-        OrganizationRepository::find_by_id(conn, id)
+        // Cadastro rejeitado não volta ao site, então guardar as fotos só
+        // acumula custo: um envio automatizado pode empurrar dezenas de
+        // megabytes por vez, e nada nunca recolhia isso.
+        let descartadas = if status == ModerationStatus::REJECTED {
+            OrganizationRepository::delete_images(conn, id)?
+        } else {
+            Vec::new()
+        };
+
+        let (organization, images) = OrganizationRepository::find_by_id(conn, id)?;
+
+        Ok((organization, images, descartadas))
     })
 }

@@ -214,12 +214,14 @@ pub async fn approve(
     path: web::Path<i32>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
+    storage: web::Data<Storage>,
 ) -> Result<HttpResponse, ApiError> {
     review(
         identity,
         path,
         pool,
         config,
+        storage,
         ModerationStatus::APPROVED,
         None,
     )
@@ -233,6 +235,7 @@ pub async fn reject(
     payload: Option<web::Json<RejectPayload>>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
+    storage: web::Data<Storage>,
 ) -> Result<HttpResponse, ApiError> {
     let reason = payload
         .and_then(|body| body.reason.clone())
@@ -244,6 +247,7 @@ pub async fn reject(
         path,
         pool,
         config,
+        storage,
         ModerationStatus::REJECTED,
         reason,
     )
@@ -255,6 +259,7 @@ async fn review(
     path: web::Path<i32>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
+    storage: web::Data<Storage>,
     status: &'static str,
     rejection_reason: Option<String>,
 ) -> Result<HttpResponse, ApiError> {
@@ -264,7 +269,7 @@ async fn review(
         .get()
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
-    let (organization, images) = web::block(move || {
+    let (organization, images, descartadas) = web::block(move || {
         actions::review_organization(
             &mut conn,
             organization_id,
@@ -275,6 +280,16 @@ async fn review(
     })
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;
+
+    // Fora da transação: se ela desfizesse depois, os arquivos já teriam sumido.
+    if !descartadas.is_empty() {
+        log::info!(
+            "Cadastro {organization_id} rejeitado: apagando {} imagem(ns) do bucket",
+            descartadas.len()
+        );
+
+        storage.remove(&descartadas).await;
+    }
 
     let view = OrganizationView::render(&organization, &images, &config.storage.public_base_url);
 

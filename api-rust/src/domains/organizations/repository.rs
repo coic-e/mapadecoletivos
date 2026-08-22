@@ -136,6 +136,26 @@ impl OrganizationRepository {
         Ok((organization, imgs))
     }
 
+    /// Apaga as linhas de imagem e devolve as chaves dos objetos.
+    ///
+    /// Só o banco: quem apaga do bucket é a rota, porque remoção lá é
+    /// assíncrona e não pode acontecer dentro da transação — se a transação
+    /// desfizesse depois, os arquivos já teriam sumido.
+    pub fn delete_images(
+        conn: &mut DbConnection,
+        organization_id: i32,
+    ) -> Result<Vec<String>, ApiError> {
+        let keys: Vec<String> = images::table
+            .filter(images::organization_id.eq(organization_id))
+            .select(images::path)
+            .load(conn)?;
+
+        diesel::delete(images::table.filter(images::organization_id.eq(organization_id)))
+            .execute(conn)?;
+
+        Ok(keys)
+    }
+
     /// Grava a decisão do moderador, junto de quem decidiu e quando.
     pub fn set_status(
         conn: &mut DbConnection,
