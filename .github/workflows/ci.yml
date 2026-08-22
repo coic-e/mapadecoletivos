@@ -1,0 +1,118 @@
+# Os mesmos comandos que o README manda rodar antes de abrir PR, só que sem
+# depender de alguém lembrar.
+#
+# As ações de terceiro vêm presas ao commit, não à tag: tag é um ponteiro
+# móvel, e quem controlasse o repositório da ação poderia reapontá-la para
+# outro código — que rodaria aqui dentro, com acesso ao checkout.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# O padrão do GitHub dá escrita; aqui nada precisa disso.
+permissions:
+  contents: read
+
+# Push novo na mesma branch cancela a execução anterior: o resultado dela já
+# não interessa a ninguém.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: rust
+    runs-on: ubuntu-latest
+
+    services:
+      # Os testes de banco precisam de um Postgres de verdade. É descartável e
+      # some com o job, que é exatamente o que TEST_DATABASE_URL pede.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rave_map_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/rave_map_test
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # O diesel com a feature postgres linka contra a libpq.
+      - name: Instalar a libpq
+        run: sudo apt-get update && sudo apt-get install -y libpq-dev
+
+      - name: Preparar o toolchain
+        run: rustup component add rustfmt clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Formatação
+        run: cargo fmt --all --check
+
+      # -D warnings porque sem isso o clippy avisa e o job passa mesmo assim.
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Testes
+        run: cargo test --workspace
+
+  app:
+    name: app
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      # `npm ci` e não `npm install`: instala exatamente o que está no lock e
+      # falha se o lock estiver fora de sincronia com o package.json.
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tipos
+        run: npx tsc --noEmit
+
+      - name: Testes
+        run: npx vitest run
+
+      - name: Build
+        run: npm run build
+
+  docker:
+    name: docker
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # O deploy é feito por painel (EasyPanel/Coolify/Dokploy), que constrói a
+      # imagem a partir deste repositório. Sem este passo, um Dockerfile
+      # quebrado só aparece na hora de subir para produção.
+      #
+      # O contexto é a raiz de propósito: a API é um crate de um workspace e o
+      # primeiro COPY precisa enxergar api-types e db-types.
+      - name: Construir a imagem da API
+        run: docker build -f Dockerfile .

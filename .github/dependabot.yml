@@ -1,0 +1,33 @@
+# Atualização de dependência por PR, não por alerta que ninguém lê.
+#
+# Semanal e agrupado de propósito: um PR por ecossistema por semana é revisável;
+# um PR por pacote vira ruído e as atualizações param de ser lidas.
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cargo:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /app
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # As próprias ações do CI. É por aqui que uma ação presa a um SHA antigo
+  # volta a ser atualizada sem perder o pinning.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
