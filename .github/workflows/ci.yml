@@ -1,10 +1,10 @@
 # Os mesmos comandos que o README manda rodar antes de abrir PR, só que sem
-# depender de alguém lembrar.
+# depender de alguém lembrar — e, no que entra na main, o disparo do deploy.
 #
 # As ações de terceiro vêm presas ao commit, não à tag: tag é um ponteiro
 # móvel, e quem controlasse o repositório da ação poderia reapontá-la para
 # outro código — que rodaria aqui dentro, com acesso ao checkout.
-name: CI
+name: CI/CD
 
 on:
   pull_request:
@@ -126,3 +126,116 @@ jobs:
       # primeiro COPY precisa enxergar api-types e db-types.
       - name: Construir a imagem da API
         run: docker build -f Dockerfile .
+
+  # --------------------------------------------------------------- deploy
+
+  # Quais serviços a mudança alcança.
+  #
+  # Sem isto, uma correção de CSS reconstrói a imagem da API no painel e
+  # vice-versa: deploy à toa, e minutos de espera para quem está olhando.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      app: ${{ steps.filter.outputs.app }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Precisa do histórico para comparar com o commit anterior.
+          fetch-depth: 0
+
+      - id: filter
+        # Os valores entram por env em vez de irem interpolados no script: é
+        # como se escreve passo de shell no Actions, mesmo quando o valor vem
+        # do próprio GitHub e não de quem abriu o PR.
+        env:
+          ANTES: ${{ github.event.before }}
+          AGORA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # Sem base de comparação — primeiro push, force-push, histórico
+          # truncado — sobe os dois, que é o lado seguro de errar.
+          if [ -z "${ANTES:-}" ] \
+            || [ "$ANTES" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "$ANTES^{commit}" 2>/dev/null; then
+            echo "sem base de comparação: subindo os dois"
+            echo "api=true" >> "$GITHUB_OUTPUT"
+            echo "app=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          mudou=$(git diff --name-only "$ANTES" "$AGORA")
+          echo "Arquivos alterados:"
+          echo "$mudou"
+
+          # O Dockerfile e o Cargo.lock da raiz são da API: é o que a imagem
+          # dela constrói.
+          if echo "$mudou" | grep -qE '^(api-rust/|api-types/|db-types/|Cargo\.(toml|lock)|Dockerfile)'; then
+            echo "api=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "api=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if echo "$mudou" | grep -qE '^app/'; then
+            echo "app=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "app=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy-api:
+    name: deploy-api
+    runs-on: ubuntu-latest
+    # Só depois dos três verdes. `changes` não roda em PR, e job que depende de
+    # job pulado é pulado junto — então isto nunca dispara fora da main.
+    needs: [rust, app, docker, changes]
+    if: needs.changes.outputs.api == 'true'
+    environment: api
+
+    steps:
+      - name: Disparar o deploy da API no EasyPanel
+        env:
+          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_API }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HOOK:-}" ]; then
+            echo "::error::EASYPANEL_DEPLOY_HOOK_API não está configurado"
+            exit 1
+          fi
+
+          # Só o código de status sai no log. O log de Actions de repositório
+          # público é visível para qualquer pessoa, e o token do EasyPanel vai
+          # dentro da própria URL do hook — o corpo da resposta pode devolvê-la.
+          codigo=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$HOOK")
+          echo "EasyPanel respondeu $codigo"
+
+          [ "$codigo" -ge 200 ] && [ "$codigo" -lt 300 ]
+
+  deploy-app:
+    name: deploy-app
+    runs-on: ubuntu-latest
+    needs: [rust, app, docker, changes]
+    if: needs.changes.outputs.app == 'true'
+    environment: app
+
+    steps:
+      - name: Disparar o deploy do front no EasyPanel
+        env:
+          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK_APP }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${HOOK:-}" ]; then
+            echo "::error::EASYPANEL_DEPLOY_HOOK_APP não está configurado"
+            exit 1
+          fi
+
+          codigo=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$HOOK")
+          echo "EasyPanel respondeu $codigo"
+
+          [ "$codigo" -ge 200 ] && [ "$codigo" -lt 300 ]

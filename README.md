@@ -101,6 +101,31 @@ ERROR: "/api-types": not found
 
 As migrações são aplicadas pela própria API na subida, então não há passo manual depois do deploy.
 
+### Disparo automático
+
+O que entra na `main` com o CI verde dispara o deploy sozinho, pelos webhooks
+do EasyPanel. São dois jobs, e cada um só roda se a mudança o alcança: mexeu em
+`app/`, sobe o front; mexeu no workspace Rust, no `Cargo.lock` ou no
+`Dockerfile`, sobe a API. Sem base de comparação — primeiro push, force-push —
+sobem os dois, que é o lado seguro de errar.
+
+As URLs dos webhooks são secrets de environment, porque o token do EasyPanel
+vai dentro da própria URL:
+
+```bash
+gh secret set EASYPANEL_DEPLOY_HOOK_API --env api
+gh secret set EASYPANEL_DEPLOY_HOOK_APP --env app
+```
+
+Os comandos pedem o valor na hora, sem eco. Pela interface é
+**Settings → Environments → `api`/`app` → Add environment secret**.
+
+Enquanto o secret não existir, o job falha dizendo qual falta — de propósito:
+deploy que não acontece em silêncio é pior do que deploy que reclama.
+
+O log do Actions de repositório público é visível para qualquer pessoa, então
+o job imprime só o código HTTP da resposta, nunca a URL nem o corpo.
+
 ### O primeiro moderador
 
 Não existe rota pública para criar moderador — seria uma porta aberta para o painel. Há dois caminhos:
