@@ -13,26 +13,26 @@ mod common;
 
 use actix_web::http::{header, StatusCode};
 use actix_web::{test, web, App};
+use api_rust::app::{build_app, Limiters};
 use api_rust::auth::{create_token, AdminIdentity, Claims};
-use api_rust::http;
 use jsonwebtoken::{EncodingKey, Header};
+use std::sync::Arc;
 
-use common::{config, ALLOWED_ORIGIN};
+use common::{config, pool_that_never_connects, NoopStore, ALLOWED_ORIGIN};
 
-/// App com os middlewares e as rotas do servidor de verdade, mas sem pool de
-/// conexões: tudo que este arquivo exercita acontece antes do banco.
+/// O app de produção, montado pelo mesmo `build_app` que o servidor usa.
+///
+/// O pool aponta para um banco que não existe: nada que este arquivo exercita
+/// chega a abrir conexão — tudo acontece antes, no middleware ou no extractor.
+/// Um caso que precisasse do banco falharia aqui, e é assim que se descobre
+/// que ele foi parar no arquivo errado.
 macro_rules! app {
     () => {{
         let config = config();
+        let limiters = Limiters::from_config(&config);
+        let pool = pool_that_never_connects();
 
-        test::init_service(
-            App::new()
-                .app_data(web::Data::new(config.clone()))
-                .wrap(http::cors(&config))
-                .wrap(http::security_headers())
-                .configure(http::routes),
-        )
-        .await
+        test::init_service(build_app(pool, Arc::new(NoopStore), config, &limiters)).await
     }};
 }
 

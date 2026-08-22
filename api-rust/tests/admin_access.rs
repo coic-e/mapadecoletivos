@@ -8,17 +8,17 @@
 mod common;
 
 use actix_web::http::{header, StatusCode};
-use actix_web::{test, web, App};
+use actix_web::test;
+use api_rust::app::{build_app, Limiters};
 use api_rust::auth::{create_token, hash_password, verify_password};
 use api_rust::bootstrap::{seed_first_admin, AdminSeed};
+use api_rust::config::AppConfig;
 use api_rust::domains::admins::repository::AdminRepository;
 use api_rust::errors::ApiError;
-use api_rust::http;
-use api_rust::rate_limit::{LoginRateLimiter, SubmissionRateLimiter};
 use db_types::admin::NewAdmin;
-use std::time::Duration;
+use std::sync::Arc;
 
-use common::{clear, config, pool, with_database};
+use common::{clear, config, pool, with_database, NoopStore};
 
 const SENHA: &str = "uma-senha-de-teste-comprida";
 
@@ -170,20 +170,17 @@ async fn no_seed_and_no_moderators_is_not_an_error() {
 
 // ---------------------------------------------------------------- login
 
-/// Monta a API inteira, com pool de verdade, como o servidor faz.
+/// A API inteira, com pool de verdade, montada pelo `build_app` de produção.
 macro_rules! api {
     ($config:expr) => {{
-        let janela = Duration::from_secs(300);
+        let limiters = Limiters::from_config(&$config);
 
-        test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool().unwrap().clone()))
-                .app_data(web::Data::new($config.clone()))
-                .app_data(web::Data::new(LoginRateLimiter::new(5, janela)))
-                .app_data(web::Data::new(SubmissionRateLimiter::new(10, janela)))
-                .wrap(http::security_headers())
-                .configure(http::routes),
-        )
+        test::init_service(build_app(
+            pool().unwrap().clone(),
+            Arc::new(NoopStore),
+            $config.clone(),
+            &limiters,
+        ))
         .await
     }};
 }
@@ -251,15 +248,17 @@ macro_rules! moderador {
     };
 }
 
-async fn login(
+/// Genérico no corpo porque o `build_app` embrulha a resposta em `EitherBody`
+/// — é o CORS decidindo entre a resposta do handler e a dele.
+async fn login<B>(
     app: &impl actix_web::dev::Service<
         actix_http::Request,
-        Response = actix_web::dev::ServiceResponse,
+        Response = actix_web::dev::ServiceResponse<B>,
         Error = actix_web::Error,
     >,
     email: &str,
     senha: &str,
-) -> actix_web::dev::ServiceResponse {
+) -> actix_web::dev::ServiceResponse<B> {
     test::call_service(
         app,
         test::TestRequest::post()
@@ -366,17 +365,12 @@ async fn an_absurd_email_or_password_is_refused_before_the_database() {
 async fn brute_force_runs_into_the_rate_limit() {
     // Sem o limite, uma senha de moderador cai na velocidade da rede.
     let moderador = moderador!("brute_force_runs_into_the_rate_limit");
-    let config = config();
-    let janela = Duration::from_secs(300);
-
-    let app = test::init_service(
-        App::new()
-            .app_data(web::Data::new(pool().unwrap().clone()))
-            .app_data(web::Data::new(config.clone()))
-            .app_data(web::Data::new(LoginRateLimiter::new(3, janela)))
-            .configure(http::routes),
-    )
-    .await;
+    // Cota apertada para o teste não precisar gastar a cota real.
+    let config = AppConfig {
+        login_rate_limit: 3,
+        ..config()
+    };
+    let app = api!(config);
 
     for tentativa in 1..=3 {
         let resp = login(&app, &moderador.email, "chute").await;
@@ -406,17 +400,11 @@ async fn a_successful_login_gives_the_quota_back() {
     // Quem só errou a senha uma vez não fica preso na janela junto com quem
     // estava tentando força bruta.
     let moderador = moderador!("a_successful_login_gives_the_quota_back");
-    let config = config();
-    let janela = Duration::from_secs(300);
-
-    let app = test::init_service(
-        App::new()
-            .app_data(web::Data::new(pool().unwrap().clone()))
-            .app_data(web::Data::new(config.clone()))
-            .app_data(web::Data::new(LoginRateLimiter::new(3, janela)))
-            .configure(http::routes),
-    )
-    .await;
+    let config = AppConfig {
+        login_rate_limit: 3,
+        ..config()
+    };
+    let app = api!(config);
 
     assert_eq!(
         login(&app, &moderador.email, "chute").await.status(),

@@ -12,7 +12,7 @@ use crate::domains::organizations::repository::OrganizationRepository;
 use crate::errors::ApiError;
 use crate::handlers::upload::{parse_bigdecimal, process_multipart};
 use crate::rate_limit::{client_key, SubmissionRateLimiter};
-use crate::storage::Storage;
+use crate::storage::SharedStore;
 use api_types::OrganizationView;
 use db_types::edit_request::OrganizationChanges;
 use db_types::organization::{slugify, ModerationStatus, NewOrganization};
@@ -214,7 +214,7 @@ pub async fn approve(
     path: web::Path<i32>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
-    storage: web::Data<Storage>,
+    storage: web::Data<SharedStore>,
 ) -> Result<HttpResponse, ApiError> {
     review(
         identity,
@@ -235,7 +235,7 @@ pub async fn reject(
     payload: Option<web::Json<RejectPayload>>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
-    storage: web::Data<Storage>,
+    storage: web::Data<SharedStore>,
 ) -> Result<HttpResponse, ApiError> {
     let reason = payload
         .and_then(|body| body.reason.clone())
@@ -259,7 +259,7 @@ async fn review(
     path: web::Path<i32>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
-    storage: web::Data<Storage>,
+    storage: web::Data<SharedStore>,
     status: &'static str,
     rejection_reason: Option<String>,
 ) -> Result<HttpResponse, ApiError> {
@@ -303,7 +303,7 @@ pub async fn create(
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
     limiter: web::Data<SubmissionRateLimiter>,
-    storage: web::Data<Storage>,
+    storage: web::Data<SharedStore>,
 ) -> Result<HttpResponse, ApiError> {
     // O cadastro é aberto e grava imagem no bucket: sem limite por IP, um
     // script enche o bucket e a fila de moderação em minutos. Conferido antes
@@ -311,7 +311,7 @@ pub async fn create(
     limiter.check(&format!("submit:{}", client_key(&req, &config)))?;
 
     // Extract multipart data (files + text fields)
-    let multipart_data = process_multipart(payload, &config, &storage).await?;
+    let multipart_data = process_multipart(payload, &config, storage.as_ref().as_ref()).await?;
 
     // Helper to get required field
     let get_field = |name: &str| -> Result<String, ApiError> {

@@ -14,7 +14,7 @@ use diesel::prelude::*;
 use diesel::sql_query;
 
 use crate::db::DbPool;
-use crate::storage::Storage;
+use crate::storage::{ImageStore, SharedStore};
 
 /// Teto para cada verificação. Sem isso, dependência travada deixa a sonda
 /// pendurada e o orquestrador interpreta como "sem resposta" muito depois.
@@ -34,9 +34,9 @@ pub async fn live() -> HttpResponse {
 ///
 /// Responde 503 quando alguma dependência falha, com o detalhe de qual: sonda
 /// que só diz "não" obriga quem está de plantão a adivinhar.
-pub async fn ready(pool: web::Data<DbPool>, storage: web::Data<Storage>) -> HttpResponse {
+pub async fn ready(pool: web::Data<DbPool>, storage: web::Data<SharedStore>) -> HttpResponse {
     let database = check_database(&pool).await;
-    let bucket = check_storage(&storage).await;
+    let bucket = check_storage(storage.as_ref().as_ref()).await;
 
     let healthy = database.is_ok() && bucket.is_ok();
 
@@ -79,7 +79,7 @@ async fn check_database(pool: &DbPool) -> Result<(), String> {
     }
 }
 
-async fn check_storage(storage: &Storage) -> Result<(), String> {
+async fn check_storage(storage: &dyn ImageStore) -> Result<(), String> {
     match tokio::time::timeout(CHECK_TIMEOUT, storage.check()).await {
         Ok(resultado) => resultado.map_err(|e| e.to_string()),
         Err(_) => Err("tempo esgotado".to_string()),
