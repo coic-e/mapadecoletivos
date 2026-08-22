@@ -176,6 +176,21 @@ cd app && npm run lint && npx tsc --noEmit && npx vitest run && npm run build
 cargo clippy && cargo test
 ```
 
+O CI roda exatamente esses comandos em todo PR (`.github/workflows/ci.yml`),
+em três jobs: `rust` (fmt, clippy com `-D warnings`, testes contra um Postgres
+descartável), `app` e `docker` — este último constrói a imagem, porque o deploy
+é feito por um painel que constrói a partir deste repositório e um `Dockerfile`
+quebrado só apareceria na hora de subir.
+
+Os três precisam passar para a `main` aceitar o merge, e a regra vale para
+admin também. Rodar os comandos localmente antes continua valendo a pena: é
+mais rápido descobrir aqui do que esperar o CI.
+
+As ações de terceiro no workflow ficam presas ao commit, não à tag: tag é
+ponteiro móvel, e quem controlasse o repositório da ação poderia reapontá-la
+para outro código, que rodaria no CI com acesso ao checkout. O Dependabot
+atualiza esses pinos junto com o resto.
+
 ## Licença
 
 MIT — mas o arquivo `LICENSE` ainda não existe no repositório. Vale adicionar antes de divulgar o projeto como open source.

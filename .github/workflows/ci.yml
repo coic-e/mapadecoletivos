@@ -75,6 +75,16 @@ jobs:
       run:
         working-directory: app
 
+    # O app valida as variáveis na subida e morre sem elas, então o lint, os
+    # testes e o build precisam de algum valor. São placeholders de propósito:
+    # o bundle daqui é descartado, e um token real de Mapbox num repositório
+    # público vazaria para qualquer PR vindo de fork.
+    env:
+      VITE_MAPBOX_USERNAME: ci
+      VITE_MAPBOX_STYLE_ID: ci
+      VITE_MAPBOX_ACCESS_TOKEN: ci
+      VITE_API_URL: http://localhost:8080
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
