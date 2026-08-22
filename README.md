@@ -99,11 +99,29 @@ COPY api-types api-types
 ERROR: "/api-types": not found
 ```
 
-As migrações são aplicadas pela própria API na subida, então não há passo manual depois do deploy. O primeiro moderador, esse sim, se cria à mão:
+As migrações são aplicadas pela própria API na subida, então não há passo manual depois do deploy.
+
+### O primeiro moderador
+
+Não existe rota pública para criar moderador — seria uma porta aberta para o painel. Há dois caminhos:
+
+**Pelo ambiente**, quando o painel não dá console. Defina antes da primeira subida:
+
+```
+ADMIN_NAME=Nome
+ADMIN_EMAIL=email@dominio.com
+ADMIN_PASSWORD=senha-com-12-caracteres-ou-mais
+```
+
+A API cria a conta no boot **só se a tabela estiver vazia** e avisa no log (`Primeiro moderador criado`). Não é fonte permanente de senha: se ela fosse reaplicada a cada boot, quem tivesse acesso ao painel assumiria a conta trocando uma variável. **Remova as duas depois de criar** — enquanto estiverem lá, a senha aparece em `docker inspect`.
+
+**Pelo console**, onde houver:
 
 ```bash
 docker compose exec rust-api create_admin "Nome" email@dominio.com
 ```
+
+Sem nenhum dos dois, a API sobe normalmente e o log avisa que a moderação está inacessível. Abrir `/admin` sem sessão válida leva para `/admin/login` — isso é o esperado, não falha.
 
 ## Workspace Rust
 
