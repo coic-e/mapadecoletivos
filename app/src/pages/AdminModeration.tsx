@@ -61,6 +61,7 @@ function AdminModeration() {
   const navigate = useNavigate();
 
   const [admin, setAdmin] = useState<Admin | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [filter, setFilter] = useState<Filter>("pending");
   const [organizations, setOrganizations] = useState<OrganizationSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,8 +83,11 @@ function AdminModeration() {
   // vazia sem explicação.
   useEffect(() => {
     fetchCurrentAdmin()
-      .then(setAdmin)
-      .catch(() => navigate("/admin/login"));
+      .then((current) => {
+        setAdmin(current);
+        setCheckingSession(false);
+      })
+      .catch(() => navigate("/admin/login", { replace: true }));
   }, [navigate]);
 
   const load = useCallback(async () => {
@@ -152,6 +156,17 @@ function AdminModeration() {
       setBusyId(null);
     }
   };
+
+  // Sem isto o painel aparece por um instante para quem não está logado, e o
+  // redirecionamento em seguida parece falha da aplicação. Nenhum dado vazava
+  // — as requisições respondem 401 —, mas a tela mentia sobre o estado.
+  if (checkingSession) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-background">
+        <p className="font-sans text-base text-muted-foreground">Verificando sessão…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh bg-background">
