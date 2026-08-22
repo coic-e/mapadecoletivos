@@ -238,12 +238,27 @@ Os três estados são `pending`, `approved` e `rejected`, garantidos por um CHEC
 
 ### Criando o primeiro moderador
 
-Não há rota de cadastro de admin: conta se cria com acesso ao servidor.
+Não há rota pública para criar admin. Há dois caminhos.
+
+**Pelo ambiente**, que é o que serve para deploy sem console:
 
 ```bash
-cd api-rust
-cargo run --bin create_admin -- "Nome" email@exemplo.com senha-de-oito-ou-mais
+ADMIN_NAME=Moderação
+ADMIN_EMAIL=voce@dominio.com
+ADMIN_PASSWORD=            # mínimo 12 caracteres
 ```
+
+A API cria a conta na subida **apenas quando não existe nenhum moderador**. É semente de primeira subida, não fonte permanente de senha: se aplicasse a senha a cada boot, quem tivesse acesso ao painel assumiria a conta editando a variável e reiniciando o serviço. Nas subidas seguintes ela é ignorada e o log avisa para removê-la do ambiente — e vale remover mesmo, porque variável de ambiente aparece em `docker inspect` e em `/proc/<pid>/environ`.
+
+Senha menor que 12 caracteres **derruba a subida**, em vez de criar uma conta fraca em silêncio.
+
+**Pelo binário**, para criar moderadores depois do primeiro:
+
+```bash
+create_admin "Nome" email@dominio.com
+```
+
+A senha vem pela entrada padrão, nunca por argumento — argumento de processo aparece na lista de processos e no histórico do shell. Funciona em pipe também: `echo "senha" | create_admin ...`.
 
 ### Autenticação
 

@@ -66,6 +66,9 @@ RUN useradd --system --create-home --uid 10001 ravemap
 
 # Copy built binary from builder
 COPY --from=builder /app/target/release/api-rust /app/
+# O criador de moderador vai junto: não há rota pública para criar admin, então
+# sem este binário não existe caminho nenhum para a primeira conta em produção.
+COPY --from=builder /app/target/release/create_admin /app/
 
 # As migrações não são copiadas: elas vão embutidas no binário pelo
 # diesel_migrations e são aplicadas na subida da API.

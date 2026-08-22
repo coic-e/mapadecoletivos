@@ -114,6 +114,11 @@ services:
       - JWT_TTL_HOURS=${JWT_TTL_HOURS:-8}
       # Ligue só se houver um proxy reescrevendo X-Forwarded-For na frente.
       - TRUST_PROXY=${TRUST_PROXY:-false}
+      # Semente do primeiro moderador. A API só a usa quando não existe nenhum
+      # moderador ainda; depois disso ela avisa no log para você remover.
+      - ADMIN_NAME=${ADMIN_NAME:-}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - RUST_LOG=info
     depends_on:
       database:

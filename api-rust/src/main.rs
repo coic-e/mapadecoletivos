@@ -4,6 +4,7 @@ use actix_cors::Cors;
 use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpServer};
 
+use api_rust::bootstrap::{seed_first_admin, AdminSeed};
 use api_rust::handlers::upload::payload_config;
 use api_rust::migrations;
 use api_rust::rate_limit::{LoginRateLimiter, SubmissionRateLimiter};
@@ -57,6 +58,20 @@ async fn main() -> std::io::Result<()> {
     }
 
     let pool = establish_connection_pool(&config);
+
+    // Depois das migrações, porque depende da tabela existir. Falha aqui
+    // derruba a subida: semente inválida significa painel inacessível, e é
+    // melhor saber disso no deploy do que na hora de moderar.
+    {
+        let mut conn = pool
+            .get()
+            .expect("não consegui pegar conexão para verificar os moderadores");
+
+        if let Err(e) = seed_first_admin(&mut conn, AdminSeed::from_env()) {
+            log::error!("{e}");
+            std::process::exit(1);
+        }
+    }
 
     // Clone values needed for server closure
     let server_host = config.server_host.clone();
