@@ -25,7 +25,12 @@ const DEFAULT_SITE_URL = "http://localhost:5173";
  * O bloco JSON-LD do index.html é inline e muda com VITE_SITE_URL, então o
  * hash dele é calculado no build em vez de ficar escrito à mão.
  */
-function csp(apiUrl: string, inlineScriptHashes: string[]) {
+/**
+ * `imagesUrl` é a origem do bucket, separada da API de propósito: as fotos dos
+ * cadastros são servidas pelo bucket, e sem ela no img-src o navegador bloqueia
+ * todas as imagens do site.
+ */
+function csp(apiUrl: string, imagesUrl: string, inlineScriptHashes: string[]) {
   const mapbox = "https://api.mapbox.com https://*.tiles.mapbox.com https://events.mapbox.com";
 
   return [
@@ -35,7 +40,7 @@ function csp(apiUrl: string, inlineScriptHashes: string[]) {
     // 'unsafe-inline' vale para atributo style, não para <script>.
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    `img-src 'self' data: blob: ${[apiUrl, mapbox].filter(Boolean).join(" ")}`,
+    `img-src 'self' data: blob: ${[apiUrl, imagesUrl, mapbox].filter(Boolean).join(" ")}`,
     `connect-src 'self' ${[apiUrl, mapbox].filter(Boolean).join(" ")}`,
     // Nada de plugin, nada de <base> reescrito, nada de iframe.
     "object-src 'none'",
@@ -55,7 +60,7 @@ function csp(apiUrl: string, inlineScriptHashes: string[]) {
  * Injeta a CSP no index.html depois que o Vite já substituiu as %VITE_*%,
  * para que o hash do JSON-LD bata com o que vai ao ar.
  */
-function cspMeta(apiUrl: string) {
+function cspMeta(apiUrl: string, imagesUrl: string) {
   return {
     name: "csp-meta",
     // Só no build: o dev server recarrega módulo por módulo com script inline
@@ -70,7 +75,7 @@ function cspMeta(apiUrl: string) {
 
         return html.replace(
           "</head>",
-          `  <meta http-equiv="Content-Security-Policy" content="${csp(apiUrl, hashes)}" />\n  </head>`
+          `  <meta http-equiv="Content-Security-Policy" content="${csp(apiUrl, imagesUrl, hashes)}" />\n  </head>`
         );
       },
     },
@@ -146,6 +151,21 @@ export default defineConfig(({ mode }) => {
   // CSP não precisa liberar origem nenhuma para chamadas.
   const apiUrl = (env.VITE_API_URL ?? "").trim().replace(/\/$/, "");
 
+  // Só a origem interessa ao CSP: o caminho do bucket dentro dela é ignorado.
+  const imagesUrl = (() => {
+    const raw = (env.VITE_IMAGES_BASE_URL ?? "").trim();
+
+    if (raw === "") return "";
+
+    try {
+      return new URL(raw).origin;
+    } catch {
+      console.warn("⚠️  VITE_IMAGES_BASE_URL não é uma URL absoluta; ignorada no CSP");
+
+      return "";
+    }
+  })();
+
   if (mode === "production" && apiUrl === "") {
     console.warn("⚠️  VITE_API_URL vazia: build em modo de demonstração, com dados estáticos");
   }
@@ -159,7 +179,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: "/",
-    plugins: [react(), tailwindcss(), tsconfigPaths(), seoFiles(siteUrl), cspMeta(apiUrl)],
+    plugins: [react(), tailwindcss(), tsconfigPaths(), seoFiles(siteUrl), cspMeta(apiUrl, imagesUrl)],
     test: {
       globals: true,
       environment: "jsdom",

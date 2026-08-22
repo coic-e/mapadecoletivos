@@ -38,6 +38,7 @@ O site sobe em `http://localhost:5173` e fala com a API em `http://localhost:808
 | `VITE_MAPBOX_ACCESS_TOKEN` | sim | token público do Mapbox: tiles e busca de endereço |
 | `VITE_SITE_URL` | em produção | URL absoluta do site; alimenta canonical, Open Graph, `robots.txt` e `sitemap.xml` |
 | `VITE_API_URL` | não | endereço da API; **vazia liga o modo de demonstração** |
+| `VITE_IMAGES_BASE_URL` | quando há API | origem pública do bucket. Entra no `img-src` do CSP — sem ela, o navegador **bloqueia todas as fotos** dos cadastros |
 
 O token do Mapbox vai no bundle e é visível para qualquer pessoa que abrir o
 site — é assim que funciona mapa no navegador. O que impede o abuso não é

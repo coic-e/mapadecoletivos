@@ -37,13 +37,22 @@ Sobe dois serviços:
 
 As portas ficam publicadas só em `127.0.0.1`, e o compose exige um `.env` na raiz — copie de `.env.example` e preencha. Não há valor padrão para segredo: a API recusa subir com os de exemplo.
 
-As imagens dos cadastros vão para um bucket compatível com S3, não para o disco do container. O RustFS cobre o ambiente local; em produção o destino é o Cloudflare R2, e a API não sabe a diferença — mudam endpoint e credenciais.
+As imagens dos cadastros vão para um bucket compatível com S3, não para o disco do container. O RustFS cobre tanto o ambiente local quanto a produção; trocar por um serviço gerenciado (Cloudflare R2, S3, Spaces) é questão de mudar endpoint e credenciais, sem tocar em código.
 
 O MinIO saiu: o console foi removido da edição comunitária em 2025 e o repositório foi arquivado em abril de 2026.
 
 **A política do bucket precisa liberar só `s3:GetObject`.** Liberar `ListBucket` junto entrega o nome de toda imagem já enviada, inclusive de cadastro pendente ou rejeitado. O `rustfs-init` do compose já aplica a política certa.
 
-### Produção no Cloudflare R2
+### Produção com RustFS
+
+O bucket precisa ser **alcançável pelo navegador de quem visita o site**, porque é dele que as fotos são baixadas. Na prática:
+
+- um domínio com HTTPS apontando para a porta 9000 do RustFS (o proxy do EasyPanel resolve o certificado). Página em https com imagem em http é bloqueada como conteúdo misto;
+- esse domínio vai em `S3_PUBLIC_BASE_URL` na API **e** em `VITE_IMAGES_BASE_URL` no front, que o coloca no `img-src` do CSP;
+- o console (9001) não deve ficar exposto na internet;
+- o volume de dados do RustFS passa a guardar as fotos dos cadastros: entra no backup junto com o Postgres.
+
+### Alternativa: Cloudflare R2
 
 | Variável | Valor |
 |---|---|
