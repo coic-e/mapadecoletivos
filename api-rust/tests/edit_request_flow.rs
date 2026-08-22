@@ -14,18 +14,18 @@ use db_types::edit_request::{EditRequestStatus, NewEditRequest, OrganizationChan
 use db_types::organization::ModerationStatus;
 use validator::Validate;
 
-use common::{admin, clear, new_organization, with_database};
+use common::{admin, clear, moderating, new_organization, with_database};
 
 fn aprovada(
     conn: &mut api_rust::db::DbConnection,
     nome: &str,
-    moderador: i32,
+    w: api_rust::domains::organizations::auth::SeeEveryStatus,
 ) -> db_types::organization::Organization {
     let (org, _) =
         actions::create_organization(conn, new_organization(nome), vec!["a.jpg".to_string()], 0)
             .expect("o cadastro deveria ser criado");
 
-    actions::review_organization(conn, org.id, ModerationStatus::APPROVED, moderador, None)
+    actions::review_organization(conn, w, org.id, ModerationStatus::APPROVED, None)
         .expect("a aprovação deveria passar")
         .0
 }
@@ -55,7 +55,7 @@ fn a_request_waits_in_the_queue_without_touching_the_registration() {
             clear(conn);
 
             let moderador = admin(conn);
-            let org = aprovada(conn, "Bunker 034", moderador.id);
+            let org = aprovada(conn, "Bunker 034", moderating(&moderador));
 
             let pedido = pedido(
                 conn,
@@ -66,7 +66,8 @@ fn a_request_waits_in_the_queue_without_touching_the_registration() {
             assert_eq!(pedido.status, EditRequestStatus::PENDING);
             assert!(pedido.reviewed_by.is_none());
 
-            let (intocada, _) = OrganizationRepository::find_by_id(conn, org.id).unwrap();
+            let (intocada, _) =
+                OrganizationRepository::find_by_id(conn, moderating(&moderador), org.id).unwrap();
 
             assert_eq!(
                 intocada.city, "Porto Alegre",
@@ -84,7 +85,7 @@ fn applying_changes_the_registration_and_closes_the_request() {
             clear(conn);
 
             let moderador = admin(conn);
-            let org = aprovada(conn, "Bunker 034", moderador.id);
+            let org = aprovada(conn, "Bunker 034", moderating(&moderador));
 
             let pedido = pedido(
                 conn,
@@ -124,7 +125,7 @@ fn an_omitted_field_is_left_alone_and_an_empty_one_is_cleared() {
             clear(conn);
 
             let moderador = admin(conn);
-            let org = aprovada(conn, "Bunker 034", moderador.id);
+            let org = aprovada(conn, "Bunker 034", moderating(&moderador));
 
             let changes: OrganizationChanges =
                 serde_json::from_value(serde_json::json!({ "instagram": "" })).unwrap();
@@ -191,7 +192,7 @@ fn a_request_stored_before_the_rules_changed_is_checked_again_on_the_way_out() {
             clear(conn);
 
             let moderador = admin(conn);
-            let org = aprovada(conn, "Bunker 034", moderador.id);
+            let org = aprovada(conn, "Bunker 034", moderating(&moderador));
 
             // Entra no banco sem passar por validação nenhuma, que é
             // exatamente o cenário de um pedido antigo.
@@ -220,7 +221,7 @@ fn rejecting_closes_the_request_and_leaves_the_registration_alone() {
             clear(conn);
 
             let moderador = admin(conn);
-            let org = aprovada(conn, "Bunker 034", moderador.id);
+            let org = aprovada(conn, "Bunker 034", moderating(&moderador));
             let pedido = pedido(conn, org.id, serde_json::json!({ "city": "Canoas" }));
 
             let recusado = EditRequestRepository::set_status(
@@ -233,7 +234,8 @@ fn rejecting_closes_the_request_and_leaves_the_registration_alone() {
 
             assert_eq!(recusado.status, EditRequestStatus::REJECTED);
 
-            let (intocada, _) = OrganizationRepository::find_by_id(conn, org.id).unwrap();
+            let (intocada, _) =
+                OrganizationRepository::find_by_id(conn, moderating(&moderador), org.id).unwrap();
             assert_eq!(intocada.city, "Porto Alegre");
         },
     );
@@ -247,7 +249,7 @@ fn the_queue_filters_by_state_and_answers_the_oldest_first() {
             clear(conn);
 
             let moderador = admin(conn);
-            let org = aprovada(conn, "Bunker 034", moderador.id);
+            let org = aprovada(conn, "Bunker 034", moderating(&moderador));
 
             let primeiro = pedido(conn, org.id, serde_json::json!({ "city": "Canoas" }));
             let segundo = pedido(conn, org.id, serde_json::json!({ "city": "Gravataí" }));
@@ -296,7 +298,7 @@ fn applying_is_all_or_nothing() {
         clear(conn);
 
         let moderador = admin(conn);
-        let org = aprovada(conn, "Bunker 034", moderador.id);
+        let org = aprovada(conn, "Bunker 034", moderating(&moderador));
 
         // Aponta para um cadastro que não existe: a alteração falha, e a
         // marcação do pedido tem que cair junto.

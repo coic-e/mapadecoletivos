@@ -15,6 +15,7 @@ use api_types::{EditRequestView, OrganizationView};
 use db_types::edit_request::{EditRequestStatus, NewEditRequest, OrganizationChanges};
 
 use super::repository::EditRequestRepository;
+use crate::domains::organizations::auth as organizations_auth;
 use crate::domains::organizations::repository::OrganizationRepository;
 
 #[derive(Debug, Deserialize)]
@@ -162,6 +163,7 @@ pub async fn apply(
     config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, ApiError> {
     let request_id = path.into_inner();
+    let w = organizations_auth::moderating(&identity);
 
     let mut conn = pool
         .get()
@@ -198,7 +200,7 @@ pub async fn apply(
 
         EditRequestRepository::apply(&mut conn, &request, &changes, identity.id)?;
 
-        OrganizationRepository::find_by_id(&mut conn, request.organization_id)
+        OrganizationRepository::find_by_id(&mut conn, w, request.organization_id)
     })
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;

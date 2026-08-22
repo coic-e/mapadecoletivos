@@ -209,6 +209,20 @@ pub fn admin(conn: &mut DbConnection) -> db_types::admin::Admin {
     .expect("deveria criar o moderador")
 }
 
+/// A prova de moderação para um admin criado no teste.
+///
+/// Passa pela mesma porta que as rotas usam: não há atalho para fabricar o
+/// witness, nem no teste.
+pub fn moderating(
+    admin: &db_types::admin::Admin,
+) -> api_rust::domains::organizations::auth::SeeEveryStatus {
+    api_rust::domains::organizations::auth::moderating(&api_rust::auth::AdminIdentity {
+        id: admin.id,
+        name: admin.name.clone(),
+        email: admin.email.clone(),
+    })
+}
+
 /// Cadastro válido, pronto para ser criado.
 pub fn new_organization(name: &str) -> db_types::organization::NewOrganization {
     use bigdecimal::BigDecimal;

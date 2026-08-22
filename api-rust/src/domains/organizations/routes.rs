@@ -17,7 +17,7 @@ use api_types::OrganizationView;
 use db_types::edit_request::OrganizationChanges;
 use db_types::organization::{slugify, ModerationStatus, NewOrganization};
 
-use super::actions;
+use super::{actions, auth};
 
 /// Teto de itens por página. Sem ele, `?limit=100000000` faz a API carregar a
 /// tabela inteira e as imagens de todo mundo em memória — negação de serviço
@@ -83,7 +83,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 
 /// GET /admin/organizations?status=pending — a fila de revisão.
 pub async fn moderation_index(
-    _identity: AdminIdentity,
+    identity: AdminIdentity,
     query: web::Query<ModerationQuery>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
@@ -117,8 +117,10 @@ pub async fn moderation_index(
         .get()
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
+    let w = auth::moderating(&identity);
+
     let organizations_with_images = web::block(move || {
-        actions::get_organizations_for_moderation(&mut conn, status, limit, offset)
+        actions::get_organizations_for_moderation(&mut conn, w, status, limit, offset)
     })
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;
@@ -131,7 +133,7 @@ pub async fn moderation_index(
 
 /// GET /admin/organizations/{id} — enxerga qualquer estado, não só aprovado.
 pub async fn moderation_show(
-    _identity: AdminIdentity,
+    identity: AdminIdentity,
     path: web::Path<i32>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
@@ -142,14 +144,12 @@ pub async fn moderation_show(
         .get()
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
-    let (organization, images) = web::block(move || {
-        crate::domains::organizations::repository::OrganizationRepository::find_by_id(
-            &mut conn,
-            organization_id,
-        )
-    })
-    .await
-    .map_err(|e| ApiError::InternalError(e.to_string()))??;
+    let w = auth::moderating(&identity);
+
+    let (organization, images) =
+        web::block(move || actions::get_organization_for_moderation(&mut conn, w, organization_id))
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))??;
 
     let view = OrganizationView::render(&organization, &images, &config.storage.public_base_url);
 
@@ -161,7 +161,7 @@ pub async fn moderation_show(
 /// Campo ausente fica como está. Não devolve o cadastro para a fila: quem
 /// editou aqui é a própria moderação.
 pub async fn update(
-    _identity: AdminIdentity,
+    identity: AdminIdentity,
     path: web::Path<i32>,
     payload: web::Json<OrganizationChanges>,
     pool: web::Data<DbPool>,
@@ -195,10 +195,12 @@ pub async fn update(
         .get()
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
+    let w = auth::moderating(&identity);
+
     let (organization, images) = web::block(move || {
         EditRequestRepository::apply_changes(&mut conn, organization_id, &changes)?;
 
-        OrganizationRepository::find_by_id(&mut conn, organization_id)
+        OrganizationRepository::find_by_id(&mut conn, w, organization_id)
     })
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;
@@ -269,14 +271,10 @@ async fn review(
         .get()
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
+    let w = auth::moderating(&identity);
+
     let (organization, images, descartadas) = web::block(move || {
-        actions::review_organization(
-            &mut conn,
-            organization_id,
-            status,
-            identity.id,
-            rejection_reason,
-        )
+        actions::review_organization(&mut conn, w, organization_id, status, rejection_reason)
     })
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;

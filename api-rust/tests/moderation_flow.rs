@@ -13,7 +13,7 @@ use api_rust::domains::organizations::repository::OrganizationRepository;
 use api_rust::errors::ApiError;
 use db_types::organization::ModerationStatus;
 
-use common::{admin, clear, new_organization, with_database};
+use common::{admin, clear, moderating, new_organization, with_database};
 
 /// Cria um cadastro com as imagens dadas e devolve o que o banco gravou.
 fn criar(
@@ -34,8 +34,12 @@ fn criar(
     .expect("o cadastro deveria ser criado")
 }
 
-fn aprovar(conn: &mut api_rust::db::DbConnection, id: i32, moderador: i32) {
-    actions::review_organization(conn, id, ModerationStatus::APPROVED, moderador, None)
+fn aprovar(
+    conn: &mut api_rust::db::DbConnection,
+    id: i32,
+    w: api_rust::domains::organizations::auth::SeeEveryStatus,
+) {
+    actions::review_organization(conn, w, id, ModerationStatus::APPROVED, None)
         .expect("a aprovação deveria passar");
 }
 
@@ -82,7 +86,7 @@ fn approving_puts_it_on_the_map() {
         let moderador = admin(conn);
         let (org, _) = criar(conn, "Bunker 034", &["a.jpg"], 0);
 
-        aprovar(conn, org.id, moderador.id);
+        aprovar(conn, org.id, moderating(&moderador));
 
         let (publico, imagens) =
             actions::get_organization_by_id(conn, org.id).expect("aprovado deveria aparecer");
@@ -120,9 +124,9 @@ fn rejecting_takes_it_off_the_map_and_throws_the_photos_away() {
 
             let (rejeitada, imagens, descartadas) = actions::review_organization(
                 conn,
+                moderating(&moderador),
                 org.id,
                 ModerationStatus::REJECTED,
-                moderador.id,
                 Some("Fora do escopo do mapa".to_string()),
             )
             .expect("a rejeição deveria passar");
@@ -161,9 +165,9 @@ fn approving_keeps_the_photos() {
 
         let (_, imagens, descartadas) = actions::review_organization(
             conn,
+            moderating(&moderador),
             org.id,
             ModerationStatus::APPROVED,
-            moderador.id,
             None,
         )
         .unwrap();
@@ -188,9 +192,9 @@ fn a_registration_that_does_not_exist_is_a_404_not_a_database_error() {
             assert!(matches!(
                 actions::review_organization(
                     conn,
+                    moderating(&moderador),
                     999_999,
                     ModerationStatus::APPROVED,
-                    moderador.id,
                     None
                 ),
                 Err(ApiError::NotFound)
@@ -210,8 +214,9 @@ fn an_invented_status_never_reaches_the_database() {
         let (org, _) = criar(conn, "Bunker 034", &["a.jpg"], 0);
 
         for inventado in ["aprovado", "APPROVED", "applied", "", "all"] {
-            let erro = actions::review_organization(conn, org.id, inventado, moderador.id, None)
-                .expect_err(&format!("{inventado:?} não é estado de moderação"));
+            let erro =
+                actions::review_organization(conn, moderating(&moderador), org.id, inventado, None)
+                    .expect_err(&format!("{inventado:?} não é estado de moderação"));
 
             assert!(
                 matches!(erro, ApiError::ValidationError(_)),
@@ -219,7 +224,8 @@ fn an_invented_status_never_reaches_the_database() {
             );
         }
 
-        let (intocada, _) = OrganizationRepository::find_by_id(conn, org.id).unwrap();
+        let (intocada, _) =
+            OrganizationRepository::find_by_id(conn, moderating(&moderador), org.id).unwrap();
         assert_eq!(intocada.status, ModerationStatus::PENDING);
     });
 }
@@ -253,7 +259,7 @@ fn the_chosen_photo_becomes_the_cover() {
         // A terceira foto enviada é a capa.
         let (org, _) = criar(conn, "Bunker 034", &["a.jpg", "b.jpg", "c.jpg"], 2);
 
-        aprovar(conn, org.id, moderador.id);
+        aprovar(conn, org.id, moderating(&moderador));
 
         let (_, imagens) = actions::get_organization_by_id(conn, org.id).unwrap();
 
@@ -275,7 +281,7 @@ fn a_cover_index_out_of_range_falls_back_to_the_first_photo() {
             let moderador = admin(conn);
             let (org, _) = criar(conn, "Bunker 034", &["a.jpg", "b.jpg"], 99);
 
-            aprovar(conn, org.id, moderador.id);
+            aprovar(conn, org.id, moderating(&moderador));
 
             let (_, imagens) = actions::get_organization_by_id(conn, org.id).unwrap();
 
@@ -296,12 +302,12 @@ fn the_moderation_queue_filters_by_state() {
         let (aprovada, _) = criar(conn, "Aprovada", &["b.jpg"], 0);
         let (rejeitada, _) = criar(conn, "Rejeitada", &["c.jpg"], 0);
 
-        aprovar(conn, aprovada.id, moderador.id);
+        aprovar(conn, aprovada.id, moderating(&moderador));
         actions::review_organization(
             conn,
+            moderating(&moderador),
             rejeitada.id,
             ModerationStatus::REJECTED,
-            moderador.id,
             None,
         )
         .unwrap();
@@ -309,6 +315,7 @@ fn the_moderation_queue_filters_by_state() {
         let mut ids = |status: Option<&str>| {
             actions::get_organizations_for_moderation(
                 conn,
+                moderating(&moderador),
                 status.map(str::to_string),
                 Some(50),
                 Some(0),
@@ -339,10 +346,12 @@ fn the_moderation_queue_shows_every_photo_of_a_registration() {
         |conn| {
             clear(conn);
 
+            let moderador = admin(conn);
             criar(conn, "Bunker 034", &["a.jpg", "b.jpg", "c.jpg"], 0);
 
             let fila = actions::get_organizations_for_moderation(
                 conn,
+                moderating(&moderador),
                 Some(ModerationStatus::PENDING.to_string()),
                 Some(50),
                 Some(0),
@@ -365,15 +374,21 @@ fn the_queue_answers_the_oldest_first() {
     with_database("the_queue_answers_the_oldest_first", |conn| {
         clear(conn);
 
+        let moderador = admin(conn);
         let (primeira, _) = criar(conn, "Primeira", &["a.jpg"], 0);
         let (segunda, _) = criar(conn, "Segunda", &["b.jpg"], 0);
 
-        let fila: Vec<i32> =
-            actions::get_organizations_for_moderation(conn, None, Some(50), Some(0))
-                .unwrap()
-                .into_iter()
-                .map(|(org, _)| org.id)
-                .collect();
+        let fila: Vec<i32> = actions::get_organizations_for_moderation(
+            conn,
+            moderating(&moderador),
+            None,
+            Some(50),
+            Some(0),
+        )
+        .unwrap()
+        .into_iter()
+        .map(|(org, _)| org.id)
+        .collect();
 
         assert_eq!(fila, vec![primeira.id, segunda.id]);
     });
@@ -391,7 +406,7 @@ fn pagination_walks_the_list_without_repeating_or_skipping() {
             let mut ids = Vec::new();
             for i in 0..5 {
                 let (org, _) = criar(conn, &format!("Coletivo {i}"), &["a.jpg"], 0);
-                aprovar(conn, org.id, moderador.id);
+                aprovar(conn, org.id, moderating(&moderador));
                 ids.push(org.id);
             }
 
@@ -421,7 +436,7 @@ fn every_photo_of_a_registration_comes_back_in_order() {
             let moderador = admin(conn);
             let (org, _) = criar(conn, "Bunker 034", &["a.jpg", "b.jpg", "c.jpg", "d.jpg"], 1);
 
-            aprovar(conn, org.id, moderador.id);
+            aprovar(conn, org.id, moderating(&moderador));
 
             let (_, imagens) = actions::get_organization_by_id(conn, org.id).unwrap();
             let posicoes: Vec<i32> = imagens.iter().map(|i| i.position).collect();
@@ -443,8 +458,8 @@ fn one_registration_never_carries_another_ones_photos() {
             let (primeira, _) = criar(conn, "Primeira", &["a.jpg", "b.jpg"], 0);
             let (segunda, _) = criar(conn, "Segunda", &["c.jpg"], 0);
 
-            aprovar(conn, primeira.id, moderador.id);
-            aprovar(conn, segunda.id, moderador.id);
+            aprovar(conn, primeira.id, moderating(&moderador));
+            aprovar(conn, segunda.id, moderating(&moderador));
 
             let (_, da_primeira) = actions::get_organization_by_id(conn, primeira.id).unwrap();
             let (_, da_segunda) = actions::get_organization_by_id(conn, segunda.id).unwrap();
