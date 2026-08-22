@@ -197,6 +197,22 @@ fn validate_has_link(organization: &NewOrganization) -> Result<(), ValidationErr
     Err(ValidationError::new("link_obrigatorio"))
 }
 
+/// O site precisa ser http ou https.
+///
+/// O validador `url` sozinho aceita qualquer esquema — inclusive
+/// `javascript:`, que num cliente que jogue o valor direto num href vira
+/// execução de script com um clique. A API é pública e não pode contar com o
+/// cuidado de quem consome.
+pub(crate) fn validate_website(value: &str) -> Result<(), ValidationError> {
+    let lower = value.trim().to_lowercase();
+
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        return Ok(());
+    }
+
+    Err(ValidationError::new("esquema_invalido"))
+}
+
 fn validate_organization_type(value: &str) -> Result<(), ValidationError> {
     if ORGANIZATION_TYPES.contains(&value) {
         return Ok(());
@@ -297,7 +313,14 @@ pub struct NewOrganization {
     #[validate(length(max = 200, message = "Link longo demais"))]
     pub spotify: Option<String>,
 
-    #[validate(url(message = "Site inválido"), length(max = 200))]
+    #[validate(
+        url(message = "Site inválido"),
+        custom(
+            function = "validate_website",
+            message = "O site precisa começar com http:// ou https://"
+        ),
+        length(max = 200)
+    )]
     pub website: Option<String>,
 
     pub is_active: bool,
@@ -356,6 +379,154 @@ mod tests {
     fn slugify_never_returns_empty() {
         assert_eq!(slugify("🎧🎶"), "role");
         assert_eq!(slugify("---"), "role");
+    }
+
+    #[test]
+    fn slugify_caps_the_length_without_leaving_a_trailing_dash() {
+        // A coluna tem índice único e o slug vai para a URL: cortar no meio de
+        // uma palavra não pode deixar hífen sobrando na ponta.
+        let longo = slugify(&"palavra ".repeat(30));
+
+        assert!(longo.len() <= 80, "slug de {} caracteres", longo.len());
+        assert!(!longo.ends_with('-'), "sobrou hífen: {longo}");
+        assert!(!longo.starts_with('-'));
+    }
+
+    #[test]
+    fn slugify_collapses_repeated_separators() {
+        assert_eq!(slugify("Techno // Acid -- Bass"), "techno-acid-bass");
+        assert_eq!(slugify("a___b"), "a-b");
+    }
+
+    #[test]
+    fn slugify_keeps_it_url_safe() {
+        // Nada de barra, ponto ou espaço: o slug é pedaço de caminho e uma
+        // barra a mais mudaria a rota que ele responde.
+        for entrada in [
+            "../../etc/passwd",
+            "Festa do Coletivo?filtro=1",
+            "nome com espaço",
+            "MAIÚSCULAS",
+        ] {
+            let slug = slugify(entrada);
+
+            assert!(
+                slug.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
+                "{entrada:?} virou {slug:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn knows_its_own_statuses() {
+        assert!(ModerationStatus::is_valid(ModerationStatus::PENDING));
+        assert!(ModerationStatus::is_valid(ModerationStatus::APPROVED));
+        assert!(ModerationStatus::is_valid(ModerationStatus::REJECTED));
+
+        // "all" é palavra da query string, não estado do banco.
+        assert!(!ModerationStatus::is_valid("all"));
+        assert!(!ModerationStatus::is_valid("applied"));
+        assert!(!ModerationStatus::is_valid("APPROVED"));
+        assert!(!ModerationStatus::is_valid(""));
+    }
+
+    #[test]
+    fn rejects_a_website_that_is_not_a_url() {
+        // `javascript:` e `data:` passam pelo validador de URL genérico: são
+        // URLs bem formadas. Num cliente que jogue o valor direto num href,
+        // viram execução de script com um clique.
+        for hostil in [
+            "javascript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "file:///etc/passwd",
+            "nao-e-url",
+        ] {
+            let mut org = valid();
+            org.website = Some(hostil.to_string());
+
+            assert!(
+                org.validate().is_err(),
+                "{hostil:?} não deveria virar link na página pública"
+            );
+        }
+
+        for aceito in ["https://coletivo.com.br", "http://coletivo.com.br/rolê"] {
+            let mut org = valid();
+            org.website = Some(aceito.to_string());
+
+            assert!(org.validate().is_ok(), "{aceito:?} deveria valer");
+        }
+    }
+
+    #[test]
+    fn rejects_an_about_that_is_too_short_or_too_long() {
+        let mut org = valid();
+        org.about = "oi".to_string();
+        assert!(org.validate().is_err());
+
+        let mut org = valid();
+        org.about = "a".repeat(1201);
+        assert!(org.validate().is_err());
+    }
+
+    #[test]
+    fn a_blank_link_does_not_count_as_contact() {
+        let mut org = valid();
+        org.instagram = Some("   ".to_string());
+
+        assert!(
+            org.validate().is_err(),
+            "espaço em branco não é canal de contato"
+        );
+    }
+
+    #[test]
+    fn accepts_every_type_and_frequency_of_the_closed_lists() {
+        // As listas são espelhadas no formulário do site; se uma opção sumir
+        // daqui, o cadastro que a usa passa a ser recusado sem aviso.
+        for tipo in ORGANIZATION_TYPES {
+            let mut org = valid();
+            org.type_ = tipo.to_string();
+
+            assert!(org.validate().is_ok(), "tipo {tipo:?} deveria valer");
+        }
+
+        for frequencia in FREQUENCIES {
+            let mut org = valid();
+            org.frequency = Some(frequencia.to_string());
+
+            assert!(
+                org.validate().is_ok(),
+                "periodicidade {frequencia:?} deveria valer"
+            );
+        }
+
+        for genero in MUSIC_GENRES {
+            let mut org = valid();
+            org.genres = vec![genero.to_string()];
+
+            assert!(org.validate().is_ok(), "gênero {genero:?} deveria valer");
+        }
+    }
+
+    #[test]
+    fn frequency_is_optional() {
+        let mut org = valid();
+        org.frequency = None;
+
+        assert!(org.validate().is_ok());
+    }
+
+    #[test]
+    fn accepts_coordinates_on_the_edge_of_the_globe() {
+        for (lat, lon) in [("90", "180"), ("-90", "-180"), ("0", "0")] {
+            let mut org = valid();
+            org.latitude = BigDecimal::from_str(lat).unwrap();
+            org.longitude = BigDecimal::from_str(lon).unwrap();
+
+            assert!(org.validate().is_ok(), "{lat}, {lon} é ponto do planeta");
+        }
     }
 
     #[test]

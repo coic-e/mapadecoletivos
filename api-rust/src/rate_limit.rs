@@ -179,3 +179,98 @@ mod tests {
         assert!(limiter.check("1.2.3.4").is_ok());
     }
 }
+
+#[cfg(test)]
+mod client_key_tests {
+    use super::*;
+    use actix_web::test::TestRequest;
+
+    fn config(trust_proxy: bool) -> AppConfig {
+        AppConfig {
+            trust_proxy,
+            ..AppConfig::sample()
+        }
+    }
+
+    #[test]
+    fn ignores_a_forged_forwarded_header_when_the_proxy_is_not_trusted() {
+        // Sem proxy na frente, X-Forwarded-For é texto livre do cliente: se
+        // valesse, cada requisição inventaria um IP novo e o limite seria
+        // decorativo.
+        let req = TestRequest::default()
+            .insert_header(("X-Forwarded-For", "10.0.0.1"))
+            .peer_addr("203.0.113.7:44321".parse().unwrap())
+            .to_http_request();
+
+        assert_eq!(client_key(&req, &config(false)), "203.0.113.7");
+    }
+
+    #[test]
+    fn uses_the_forwarded_header_when_the_proxy_is_trusted() {
+        let req = TestRequest::default()
+            .insert_header(("X-Forwarded-For", "10.0.0.1"))
+            .peer_addr("203.0.113.7:44321".parse().unwrap())
+            .to_http_request();
+
+        assert_eq!(client_key(&req, &config(true)), "10.0.0.1");
+    }
+
+    #[test]
+    fn falls_back_to_the_peer_when_the_forwarded_header_is_garbage() {
+        let req = TestRequest::default()
+            .insert_header(("X-Forwarded-For", "nao-e-um-ip"))
+            .peer_addr("203.0.113.7:44321".parse().unwrap())
+            .to_http_request();
+
+        assert_eq!(client_key(&req, &config(true)), "203.0.113.7");
+    }
+
+    #[test]
+    fn the_port_never_enters_the_key() {
+        // Cada conexão vem de uma porta de origem diferente; com a porta na
+        // chave, um mesmo cliente ganharia uma cota nova a cada requisição.
+        let primeira = TestRequest::default()
+            .peer_addr("203.0.113.7:44321".parse().unwrap())
+            .to_http_request();
+        let segunda = TestRequest::default()
+            .peer_addr("203.0.113.7:51002".parse().unwrap())
+            .to_http_request();
+
+        assert_eq!(
+            client_key(&primeira, &config(false)),
+            client_key(&segunda, &config(false))
+        );
+    }
+
+    #[test]
+    fn the_two_limiters_do_not_share_a_counter() {
+        // Registrados como o mesmo tipo, o app_data do actix guardaria um só e
+        // login e cadastro dividiriam a cota.
+        let login = LoginRateLimiter::new(1, Duration::from_secs(60));
+        let submission = SubmissionRateLimiter::new(1, Duration::from_secs(60));
+
+        assert!(login.check("1.2.3.4").is_ok());
+        assert!(login.check("1.2.3.4").is_err());
+        assert!(
+            submission.check("1.2.3.4").is_ok(),
+            "o cadastro não pode herdar a cota gasta no login"
+        );
+    }
+
+    #[test]
+    fn reports_how_long_to_wait() {
+        let limiter = RateLimiter::new(1, Duration::from_secs(60));
+
+        assert!(limiter.check("1.2.3.4").is_ok());
+
+        match limiter.check("1.2.3.4") {
+            Err(ApiError::TooManyRequests(segundos)) => {
+                assert!(
+                    (1..=60).contains(&segundos),
+                    "retry-after fora da janela: {segundos}"
+                );
+            }
+            outro => panic!("esperava TooManyRequests, veio {outro:?}"),
+        }
+    }
+}

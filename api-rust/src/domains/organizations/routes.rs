@@ -521,3 +521,44 @@ pub async fn index(
 
     Ok(HttpResponse::Ok().json(views))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_when_the_query_string_says_nothing() {
+        assert_eq!(paginate(None, None), (Some(DEFAULT_PAGE_SIZE), Some(0)));
+    }
+
+    #[test]
+    fn caps_the_page_size() {
+        // Sem o teto, `?limit=100000000` carrega a tabela inteira e as imagens
+        // de todo mundo para a memória — negação de serviço com uma requisição.
+        assert_eq!(paginate(Some(100_000_000), None).0, Some(MAX_PAGE_SIZE));
+        assert_eq!(paginate(Some(i64::MAX), None).0, Some(MAX_PAGE_SIZE));
+    }
+
+    #[test]
+    fn a_page_always_has_at_least_one_item() {
+        // limit=0 devolveria página vazia para sempre; negativo é erro de
+        // sintaxe no Postgres e voltava como 500.
+        assert_eq!(paginate(Some(0), None).0, Some(1));
+        assert_eq!(paginate(Some(-10), None).0, Some(1));
+    }
+
+    #[test]
+    fn a_negative_offset_starts_from_the_beginning() {
+        assert_eq!(paginate(None, Some(-5)).1, Some(0));
+        assert_eq!(paginate(None, Some(i64::MIN)).1, Some(0));
+    }
+
+    #[test]
+    fn keeps_a_reasonable_page_as_it_came() {
+        assert_eq!(paginate(Some(20), Some(40)), (Some(20), Some(40)));
+        assert_eq!(
+            paginate(Some(MAX_PAGE_SIZE), Some(0)).0,
+            Some(MAX_PAGE_SIZE)
+        );
+    }
+}

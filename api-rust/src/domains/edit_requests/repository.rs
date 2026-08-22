@@ -38,9 +38,11 @@ impl EditRequestRepository {
             query = query.filter(edit_requests::status.eq(state.to_string()));
         }
 
-        // Mais antigos primeiro: quem pediu antes espera menos.
+        // Mais antigos primeiro: quem pediu antes espera menos, e o id
+        // desempata para que a fila tenha sempre a mesma ordem.
         query
             .order(edit_requests::created_at.asc())
+            .then_order_by(edit_requests::id.asc())
             .load::<EditRequest>(conn)
             .map_err(ApiError::from)
     }

@@ -1,0 +1,13 @@
+# Quem é chamado para revisar, por padrão.
+#
+# Vale como sugestão automática de revisor. Só vira exigência se a proteção da
+# main ligar "require review from Code Owners".
+*       @lucaoskaique
+
+# O que decide quem entra e o que é publicado. Mudança aqui merece um olhar a
+# mais, mesmo quando o diff é pequeno.
+/api-rust/src/auth/          @lucaoskaique
+/api-rust/src/config.rs      @lucaoskaique
+/api-rust/src/http.rs        @lucaoskaique
+/api-rust/src/rate_limit.rs  @lucaoskaique
+/.github/                    @lucaoskaique

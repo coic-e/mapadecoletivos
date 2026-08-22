@@ -201,30 +201,8 @@ mod tests {
 
     fn config_with_secret(secret: &str) -> AppConfig {
         AppConfig {
-            storage: crate::config::StorageConfig {
-                endpoint: "http://localhost:9000".to_string(),
-                region: "us-east-1".to_string(),
-                bucket: "rave-map".to_string(),
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                public_base_url: "http://localhost:9000/rave-map".to_string(),
-                force_path_style: true,
-            },
-            database_url: String::new(),
-            server_host: "127.0.0.1".to_string(),
-            server_port: 8080,
-            max_file_size: 1024,
-            max_files_per_request: 1,
-            max_field_size: 1024,
-            max_request_size: 1024,
-            base_url: String::new(),
             jwt_secret: secret.to_string(),
-            jwt_ttl_hours: 1,
-            cors_allowed_origins: Vec::new(),
-            trust_proxy: false,
-            login_rate_limit: 5,
-            submission_rate_limit: 5,
-            rate_limit_window_secs: 60,
+            ..AppConfig::sample()
         }
     }
 

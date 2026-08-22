@@ -101,6 +101,31 @@ ERROR: "/api-types": not found
 
 As migrações são aplicadas pela própria API na subida, então não há passo manual depois do deploy.
 
+### Disparo automático
+
+O que entra na `main` com o CI verde dispara o deploy sozinho, pelos webhooks
+do EasyPanel. São dois jobs, e cada um só roda se a mudança o alcança: mexeu em
+`app/`, sobe o front; mexeu no workspace Rust, no `Cargo.lock` ou no
+`Dockerfile`, sobe a API. Sem base de comparação — primeiro push, force-push —
+sobem os dois, que é o lado seguro de errar.
+
+As URLs dos webhooks são secrets de environment, porque o token do EasyPanel
+vai dentro da própria URL:
+
+```bash
+gh secret set EASYPANEL_DEPLOY_HOOK_API --env api
+gh secret set EASYPANEL_DEPLOY_HOOK_APP --env app
+```
+
+Os comandos pedem o valor na hora, sem eco. Pela interface é
+**Settings → Environments → `api`/`app` → Add environment secret**.
+
+Enquanto o secret não existir, o job falha dizendo qual falta — de propósito:
+deploy que não acontece em silêncio é pior do que deploy que reclama.
+
+O log do Actions de repositório público é visível para qualquer pessoa, então
+o job imprime só o código HTTP da resposta, nunca a URL nem o corpo.
+
 ### O primeiro moderador
 
 Não existe rota pública para criar moderador — seria uma porta aberta para o painel. Há dois caminhos:
@@ -135,6 +160,27 @@ cargo run -p api-rust  # sobe só a API
 cargo fmt && cargo clippy
 ```
 
+### Testes
+
+`cargo test` roda tudo que não depende de serviço externo: validação de cadastro
+e de pedido de correção, configuração de subida, parser de multipart, limites
+por IP, tokens, montagem das respostas e o contrato HTTP (quem entra sem token,
+quais origens o CORS libera, cabeçalhos de segurança).
+
+Os testes que precisam de Postgres — moderação, fila de correções e login —
+rodam só quando `TEST_DATABASE_URL` aponta para um **banco descartável**. Sem
+ela, cada um se anuncia como pulado e a suíte passa mesmo assim.
+
+```bash
+docker compose exec database psql -U docker -d postgres -c "CREATE DATABASE rave_map_test OWNER docker;"
+TEST_DATABASE_URL=postgres://docker:SENHA@127.0.0.1:5432/rave_map_test cargo test
+```
+
+Eles aplicam as migrações sozinhos, montam o cenário que precisam e desfazem
+tudo numa transação no fim. **Não aponte para o banco de desenvolvimento**: os
+casos apagam tabela para chegar ao estado que testam, e a suíte recusa rodar se
+`TEST_DATABASE_URL` for igual a `DATABASE_URL`.
+
 `api-types` e `db-types` existem para separar o que é modelo de banco do que é resposta HTTP: `db-types` guarda as structs do Diesel, `api-types` guarda as views que a API serializa. O front-end só conhece as segundas.
 
 ## Fluxo de trabalho
@@ -154,6 +200,21 @@ Antes de abrir PR, no que você mexeu:
 cd app && npm run lint && npx tsc --noEmit && npx vitest run && npm run build
 cargo clippy && cargo test
 ```
+
+O CI roda exatamente esses comandos em todo PR (`.github/workflows/ci.yml`),
+em três jobs: `rust` (fmt, clippy com `-D warnings`, testes contra um Postgres
+descartável), `app` e `docker` — este último constrói a imagem, porque o deploy
+é feito por um painel que constrói a partir deste repositório e um `Dockerfile`
+quebrado só apareceria na hora de subir.
+
+Os três precisam passar para a `main` aceitar o merge, e a regra vale para
+admin também. Rodar os comandos localmente antes continua valendo a pena: é
+mais rápido descobrir aqui do que esperar o CI.
+
+As ações de terceiro no workflow ficam presas ao commit, não à tag: tag é
+ponteiro móvel, e quem controlasse o repositório da ação poderia reapontá-la
+para outro código, que rodaria no CI com acesso ao checkout. O Dependabot
+atualiza esses pinos junto com o resto.
 
 ## Licença
 

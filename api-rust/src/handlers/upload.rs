@@ -23,6 +23,7 @@ pub struct UploadedFile {
     pub filename: String,
 }
 
+#[derive(Debug)]
 pub struct MultipartData {
     pub files: Vec<UploadedFile>,
     pub fields: HashMap<String, String>,
@@ -351,6 +352,54 @@ mod tests {
     }
 
     #[test]
+    fn a_file_shorter_than_the_signature_is_not_recognised() {
+        // Não dá para decidir sem os bytes de assinatura, e "não decidi" tem
+        // que valer recusa: o process_multipart trata isto como erro.
+        assert_eq!(detect_image_kind(b"RIFF"), None);
+        assert_eq!(detect_image_kind(b""), None);
+    }
+
+    #[test]
+    fn a_webp_header_needs_the_webp_marker_not_just_riff() {
+        // RIFF sozinho é contêiner de áudio (WAV, AVI), não de imagem.
+        assert_eq!(detect_image_kind(b"RIFF\x00\x00\x00\x00WAVE"), None);
+    }
+
+    #[test]
+    fn the_extension_and_the_content_type_walk_together() {
+        // O content-type gravado no objeto vem daqui, nunca do que o cliente
+        // declarou: é o que impede o bucket de servir um arquivo qualquer como
+        // documento.
+        for (kind, extension, content_type) in [
+            (ImageKind::Jpeg, "jpg", "image/jpeg"),
+            (ImageKind::Png, "png", "image/png"),
+            (ImageKind::Gif, "gif", "image/gif"),
+            (ImageKind::Webp, "webp", "image/webp"),
+        ] {
+            assert_eq!(kind.extension(), extension);
+            assert_eq!(kind.content_type(), content_type);
+        }
+    }
+
+    #[test]
+    fn parses_coordinates_and_refuses_what_is_not_a_number() {
+        assert_eq!(
+            parse_bigdecimal("latitude", "-30.0346").unwrap(),
+            BigDecimal::from_str("-30.0346").unwrap()
+        );
+
+        for lixo in ["", "abc", "-30,03", "30.0.1", "NaN"] {
+            let erro = parse_bigdecimal("latitude", lixo)
+                .expect_err(&format!("{lixo:?} não é coordenada"));
+
+            assert!(
+                matches!(erro, ApiError::ValidationError(_)),
+                "{lixo:?} deveria virar erro de validação, não 500"
+            );
+        }
+    }
+
+    #[test]
     fn filename_comes_from_the_content_not_from_the_client() {
         let name = random_filename("png");
 
@@ -358,5 +407,268 @@ mod tests {
         assert_eq!(name.len(), 32 + ".png".len());
         assert!(name[..32].chars().all(|c| c.is_ascii_hexdigit()));
         assert_ne!(name, random_filename("png"), "deveria ser sorteado");
+    }
+}
+
+/// Testes do parser de multipart.
+///
+/// Todos passam por um `Storage` apontado para um endereço morto: os caminhos
+/// exercitados aqui recusam a requisição antes de qualquer objeto subir, então
+/// a limpeza que eles disparam não tem chave nenhuma para apagar e não sai da
+/// máquina. Um caso que chegasse a subir de verdade pertence aos testes de
+/// integração, não a este módulo.
+#[cfg(test)]
+mod multipart_tests {
+    use super::*;
+    use actix_web::{test, FromRequest};
+
+    const BOUNDARY: &str = "----------------------------fronteira";
+
+    fn config() -> AppConfig {
+        AppConfig::sample()
+    }
+
+    fn storage(config: &AppConfig) -> Storage {
+        Storage::new(&config.storage)
+    }
+
+    /// Monta o corpo de um multipart. Cada parte é (cabeçalho da disposição,
+    /// bytes do conteúdo).
+    fn body(parts: &[(String, Vec<u8>)]) -> Vec<u8> {
+        let mut out = Vec::new();
+
+        for (disposition, content) in parts {
+            out.extend_from_slice(format!("--{BOUNDARY}\r\n").as_bytes());
+            out.extend_from_slice(format!("Content-Disposition: {disposition}\r\n\r\n").as_bytes());
+            out.extend_from_slice(content);
+            out.extend_from_slice(b"\r\n");
+        }
+
+        out.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
+
+        out
+    }
+
+    fn text_part(name: &str, value: &str) -> (String, Vec<u8>) {
+        (
+            format!("form-data; name=\"{name}\""),
+            value.as_bytes().to_vec(),
+        )
+    }
+
+    fn file_part(name: &str, filename: &str, content: &[u8]) -> (String, Vec<u8>) {
+        (
+            format!("form-data; name=\"{name}\"; filename=\"{filename}\""),
+            content.to_vec(),
+        )
+    }
+
+    async fn parse(
+        parts: &[(String, Vec<u8>)],
+        config: &AppConfig,
+    ) -> Result<MultipartData, ApiError> {
+        let (req, mut payload) = test::TestRequest::default()
+            .insert_header((
+                actix_web::http::header::CONTENT_TYPE,
+                format!("multipart/form-data; boundary={BOUNDARY}"),
+            ))
+            .set_payload(body(parts))
+            .to_http_parts();
+
+        let multipart = Multipart::from_request(&req, &mut payload)
+            .await
+            .expect("o corpo deveria ser um multipart válido");
+
+        let storage = storage(config);
+
+        process_multipart(multipart, config, &storage).await
+    }
+
+    #[actix_web::test]
+    async fn reads_the_text_fields_into_the_map() {
+        let config = config();
+        let data = parse(
+            &[
+                text_part("name", "Bunker 034"),
+                text_part("city", "Porto Alegre"),
+                text_part("genres", "Techno, Acid"),
+            ],
+            &config,
+        )
+        .await
+        .expect("campos de texto simples deveriam passar");
+
+        assert_eq!(
+            data.fields.get("name").map(String::as_str),
+            Some("Bunker 034")
+        );
+        assert_eq!(
+            data.fields.get("genres").map(String::as_str),
+            Some("Techno, Acid")
+        );
+        assert!(data.files.is_empty(), "nenhum arquivo foi enviado");
+    }
+
+    #[actix_web::test]
+    async fn refuses_a_file_that_is_not_an_image() {
+        // O caso que virava XSS armazenado: um .html com a extensão trocada.
+        let config = config();
+        let erro = parse(
+            &[file_part(
+                "images",
+                "foto.png",
+                b"<!doctype html><script>alert(document.cookie)</script>",
+            )],
+            &config,
+        )
+        .await
+        .expect_err("documento não é imagem");
+
+        assert!(
+            matches!(erro, ApiError::FileUploadError(_)),
+            "veio {erro:?}"
+        );
+    }
+
+    #[actix_web::test]
+    async fn refuses_a_file_too_short_to_be_recognised() {
+        let config = config();
+        let erro = parse(&[file_part("images", "foto.png", b"RIFF")], &config)
+            .await
+            .expect_err("sem assinatura não dá para reconhecer");
+
+        assert!(
+            matches!(erro, ApiError::FileUploadError(_)),
+            "veio {erro:?}"
+        );
+    }
+
+    #[actix_web::test]
+    async fn refuses_an_image_over_the_size_limit() {
+        let config = AppConfig {
+            max_file_size: 64,
+            ..config()
+        };
+
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        png.extend(std::iter::repeat_n(0u8, 1024));
+
+        let erro = parse(&[file_part("images", "foto.png", &png)], &config)
+            .await
+            .expect_err("passou do teto por arquivo");
+
+        assert!(
+            matches!(erro, ApiError::PayloadTooLarge(_)),
+            "veio {erro:?}"
+        );
+    }
+
+    #[actix_web::test]
+    async fn refuses_an_oversized_text_field() {
+        // Sem este teto, um "about" de 2 GB é lido inteiro para a memória
+        // antes de qualquer validação.
+        let config = AppConfig {
+            max_field_size: 32,
+            ..config()
+        };
+
+        let erro = parse(&[text_part("about", &"a".repeat(500))], &config)
+            .await
+            .expect_err("passou do teto por campo");
+
+        assert!(
+            matches!(erro, ApiError::PayloadTooLarge(_)),
+            "veio {erro:?}"
+        );
+    }
+
+    #[actix_web::test]
+    async fn refuses_a_body_over_the_request_limit() {
+        // Muitos campos pequenos, cada um dentro do teto individual, somando
+        // mais que o corpo inteiro permite.
+        let config = AppConfig {
+            max_field_size: 64,
+            max_request_size: 100,
+            ..config()
+        };
+
+        let parts: Vec<_> = (0..10)
+            .map(|i| text_part(&format!("campo{i}"), &"a".repeat(50)))
+            .collect();
+
+        let erro = parse(&parts, &config)
+            .await
+            .expect_err("a soma passou do teto do corpo");
+
+        assert!(
+            matches!(erro, ApiError::PayloadTooLarge(_)),
+            "veio {erro:?}"
+        );
+    }
+
+    #[actix_web::test]
+    async fn refuses_a_body_with_too_many_fields() {
+        // Um corpo com um milhão de campos minúsculos passa por baixo de
+        // qualquer limite de tamanho.
+        let config = config();
+        let parts: Vec<_> = (0..=MAX_MULTIPART_FIELDS)
+            .map(|i| text_part(&format!("campo{i}"), "x"))
+            .collect();
+
+        let erro = parse(&parts, &config)
+            .await
+            .expect_err("passou do número de campos");
+
+        assert!(
+            matches!(erro, ApiError::PayloadTooLarge(_)),
+            "veio {erro:?}"
+        );
+    }
+
+    #[actix_web::test]
+    async fn accepts_exactly_the_field_limit() {
+        let config = config();
+        let parts: Vec<_> = (0..MAX_MULTIPART_FIELDS)
+            .map(|i| text_part(&format!("campo{i}"), "x"))
+            .collect();
+
+        let data = parse(&parts, &config).await.expect("no limite ainda passa");
+
+        assert_eq!(data.fields.len(), MAX_MULTIPART_FIELDS);
+    }
+
+    #[actix_web::test]
+    async fn refuses_a_text_field_that_is_not_valid_utf8() {
+        let config = config();
+        let erro = parse(
+            &[(
+                "form-data; name=\"about\"".to_string(),
+                vec![0xFF, 0xFE, 0xFD],
+            )],
+            &config,
+        )
+        .await
+        .expect_err("bytes soltos não são texto");
+
+        assert!(
+            matches!(erro, ApiError::FileUploadError(_)),
+            "veio {erro:?}"
+        );
+    }
+
+    #[actix_web::test]
+    async fn only_the_images_field_uploads() {
+        // Um arquivo enviado com outro nome de campo não vira objeto no
+        // bucket: ele cai no caminho de campo de texto.
+        let config = config();
+        let data = parse(
+            &[file_part("anexo", "contrato.pdf", b"%PDF-1.7 conteudo")],
+            &config,
+        )
+        .await
+        .expect("não é upload, é campo");
+
+        assert!(data.files.is_empty(), "nada deveria ter subido");
+        assert!(data.fields.contains_key("anexo"));
     }
 }

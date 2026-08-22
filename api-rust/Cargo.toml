@@ -32,3 +32,7 @@ diesel_migrations = "2"
 
 [dev-dependencies]
 actix-test = "0.1"
+# Os testes de integração montam cenário direto no banco.
+diesel = { version = "2", features = ["postgres", "r2d2"] }
+bigdecimal = { version = "0.4" }
+actix-http = "3"
