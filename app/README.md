@@ -118,11 +118,29 @@ Cadastro novo entra como pendente e só aparece no mapa depois que um moderador 
 
 **Limitação conhecida:** o app é uma SPA sem SSR. O Google executa JS e indexa normalmente, mas os robôs de preview (WhatsApp, Instagram, Facebook, Twitter) não executam — eles leem só o `index.html`. Compartilhar o link de um rolê específico mostra o preview genérico da home até que as rotas sejam pré-renderizadas. Falta também um `public/og-cover.png` de 1200×630, referenciado pelas tags Open Graph.
 
-## Deploy na Vercel
+## Deploy
 
-O `vercel.json` reescreve qualquer caminho para o `index.html`. Sem ele, abrir `/raves` direto na barra de endereço — ou apertar F5 estando lá — devolve **404 da Vercel**, porque não existe esse arquivo no disco: só a home funcionaria, e a navegação por dentro do app esconderia o problema. Arquivos estáticos continuam sendo servidos normalmente, porque a Vercel consulta o sistema de arquivos antes de aplicar rewrite.
+O `Dockerfile` desta pasta constrói o app e serve o resultado com nginx. O contexto é a própria `app/` — o front não depende de nada fora dela.
 
-Variáveis a configurar no projeto: as três do Mapbox, `VITE_SITE_URL` com a URL da preview, e `VITE_API_URL` **ausente** enquanto não houver API publicada.
+**No EasyPanel:** Build path `/app`, porta **80**.
+
+As variáveis do Vite são resolvidas na **compilação**, não na execução: elas viram texto dentro do bundle. Configure-as como variáveis do serviço e o painel as repassa como build args (é o que o `Dockerfile` espera). Definir depois, no ambiente do container, não tem efeito nenhum — o bundle já está pronto.
+
+```
+VITE_MAPBOX_USERNAME=
+VITE_MAPBOX_STYLE_ID=
+VITE_MAPBOX_ACCESS_TOKEN=
+VITE_SITE_URL=https://seu-dominio
+VITE_API_URL=https://sua-api
+VITE_IMAGES_BASE_URL=https://seu-bucket
+```
+
+Todas são públicas por natureza — qualquer visitante lê o bundle. O token do Mapbox se protege restringindo domínios no painel deles, não escondendo.
+
+O `nginx.conf` cuida de três coisas que quebram um SPA em produção: qualquer rota devolve o `index.html` (senão `/raves` dá 404 ao recarregar), arquivo com extensão que não existe devolve **404 de verdade** (senão imagem quebrada responde 200 com HTML e ninguém percebe a falha), e o `index.html` não é cacheado enquanto o bundle é cacheado para sempre — é o que faz o deploy novo aparecer sem o navegador insistir num bundle que já sumiu.
+
+**Na Vercel**, alternativa, o `vercel.json` faz o mesmo redirecionamento de SPA.
+
 
 ## Contribuindo
 
