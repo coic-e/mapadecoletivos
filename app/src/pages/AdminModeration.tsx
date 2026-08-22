@@ -1,9 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { AlertCircle, Check, Loader2, LogOut, PencilLine, X } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  LogOut,
+  PencilLine,
+  X,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import api from "@/services/api";
 import { fetchCurrentAdmin, logout, type Admin } from "@/services/auth";
@@ -38,6 +54,13 @@ const FILTERS = [
 
 type Filter = (typeof FILTERS)[number]["value"];
 
+/** Imagem aberta em tamanho cheio, com o cadastro de origem para navegar entre elas. */
+interface Preview {
+  organization: string;
+  images: Array<{ id: number; url: string }>;
+  index: number;
+}
+
 /** Rótulos dos campos que um pedido de correção pode tocar. */
 const FIELD_LABELS: Record<string, string> = {
   name: "Nome",
@@ -71,6 +94,7 @@ function AdminModeration() {
   const [rejectReason, setRejectReason] = useState("");
   const [editRequests, setEditRequests] = useState<EditRequest[]>([]);
   const [busyRequestId, setBusyRequestId] = useState<number | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
 
   useSeo({
     title: "Fila de moderação | Mapa de Rave",
@@ -304,12 +328,31 @@ function AdminModeration() {
               <li key={organization.id}>
                 <Card>
                   <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:p-6">
-                    {organization.images[0] && (
-                      <img
-                        src={organization.images[0].url}
-                        alt=""
-                        className="h-32 w-full rounded-md object-cover sm:w-48"
-                      />
+                    {organization.images.length > 0 && (
+                      <div className="flex w-full shrink-0 flex-wrap content-start gap-2 sm:w-48">
+                        {organization.images.map((image, index) => (
+                          <button
+                            key={image.id}
+                            type="button"
+                            title={`Abrir foto ${index + 1} de ${organization.images.length}`}
+                            onClick={() =>
+                              setPreview({
+                                organization: organization.name,
+                                images: organization.images,
+                                index,
+                              })
+                            }
+                            className="h-24 flex-1 basis-[calc(50%-0.25rem)] cursor-pointer overflow-hidden rounded-md border-0 bg-muted p-0"
+                          >
+                            <img
+                              src={image.url}
+                              alt={`Foto ${index + 1} de ${organization.images.length} do cadastro ${organization.name}`}
+                              loading="lazy"
+                              className="size-full object-cover"
+                            />
+                          </button>
+                        ))}
+                      </div>
                     )}
 
                     <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -440,6 +483,63 @@ function AdminModeration() {
           </ul>
         )}
       </main>
+
+      {/* Julgar um cadastro depende das fotos: a miniatura corta demais para
+          decidir, então a modal mostra a imagem inteira sem sair da fila. */}
+      <Dialog open={preview !== null} onOpenChange={(open) => !open && setPreview(null)}>
+        <DialogContent className="max-w-4xl">
+          {preview && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{preview.organization}</DialogTitle>
+                <DialogDescription>
+                  Foto {preview.index + 1} de {preview.images.length}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="flex items-center gap-2 p-4">
+                {preview.images.length > 1 && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Foto anterior"
+                    onClick={() =>
+                      setPreview({
+                        ...preview,
+                        index: (preview.index - 1 + preview.images.length) % preview.images.length,
+                      })
+                    }
+                  >
+                    <ChevronLeft />
+                  </Button>
+                )}
+
+                <img
+                  src={preview.images[preview.index].url}
+                  alt={`Foto ${preview.index + 1} de ${preview.images.length} do cadastro ${preview.organization}`}
+                  className="max-h-[70dvh] min-w-0 flex-1 rounded-md object-contain"
+                />
+
+                {preview.images.length > 1 && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Próxima foto"
+                    onClick={() =>
+                      setPreview({
+                        ...preview,
+                        index: (preview.index + 1) % preview.images.length,
+                      })
+                    }
+                  >
+                    <ChevronRight />
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
