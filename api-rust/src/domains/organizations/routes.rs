@@ -7,8 +7,6 @@ use validator::Validate;
 use crate::auth::AdminIdentity;
 use crate::config::AppConfig;
 use crate::db::DbPool;
-use crate::domains::edit_requests::repository::EditRequestRepository;
-use crate::domains::organizations::repository::OrganizationRepository;
 use crate::errors::ApiError;
 use crate::handlers::upload::{parse_bigdecimal, process_multipart};
 use crate::rate_limit::{client_key, SubmissionRateLimiter};
@@ -157,9 +155,6 @@ pub async fn moderation_show(
 }
 
 /// PATCH /admin/organizations/{id} — edição direta pelo moderador.
-///
-/// Campo ausente fica como está. Não devolve o cadastro para a fila: quem
-/// editou aqui é a própria moderação.
 pub async fn update(
     identity: AdminIdentity,
     path: web::Path<i32>,
@@ -167,40 +162,16 @@ pub async fn update(
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, ApiError> {
+    let w = auth::moderating(&identity);
     let organization_id = path.into_inner();
     let changes = payload.into_inner();
-
-    if changes.is_empty() {
-        return Err(ApiError::ValidationError(
-            vec![(
-                "changes".to_string(),
-                vec!["Informe ao menos um campo para alterar".to_string()],
-            )]
-            .into_iter()
-            .collect(),
-        ));
-    }
-
-    changes.validate().map_err(ApiError::from)?;
-
-    if let Err(reason) = changes.validate_closed_lists() {
-        return Err(ApiError::ValidationError(
-            vec![("changes".to_string(), vec![reason])]
-                .into_iter()
-                .collect(),
-        ));
-    }
 
     let mut conn = pool
         .get()
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
-    let w = auth::moderating(&identity);
-
     let (organization, images) = web::block(move || {
-        EditRequestRepository::apply_changes(&mut conn, organization_id, &changes)?;
-
-        OrganizationRepository::find_by_id(&mut conn, w, organization_id)
+        actions::apply_moderator_changes(&mut conn, w, organization_id, &changes)
     })
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;

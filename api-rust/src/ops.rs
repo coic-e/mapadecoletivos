@@ -1,5 +1,10 @@
 //! Sinais de saúde da API.
 //!
+//! Fica solto aqui, e não em `domains/`, porque não é domínio: não tem regra de
+//! negócio para orquestrar nem autorização para decidir. São duas sondas que
+//! chamam uma dependência e relatam. Uma camada de action aqui só acrescentaria
+//! um arquivo que repassa a chamada.
+//!
 //! São dois, de propósito, porque respondem perguntas diferentes:
 //!
 //! - `/health` diz que o processo está de pé. Não toca em banco nem bucket, e

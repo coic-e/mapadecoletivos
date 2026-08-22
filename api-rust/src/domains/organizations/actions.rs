@@ -102,6 +102,27 @@ pub fn get_organization_for_moderation(
     OrganizationRepository::find_by_id(conn, w, id)
 }
 
+/// Edição direta pelo moderador.
+///
+/// Campo ausente fica como está. Não devolve o cadastro para a fila: quem
+/// editou aqui é a própria moderação.
+pub fn apply_moderator_changes(
+    conn: &mut DbConnection,
+    w: SeeEveryStatus,
+    id: i32,
+    changes: &db_types::edit_request::OrganizationChanges,
+) -> Result<(Organization, Vec<db_types::image::Image>), ApiError> {
+    // Mesmas regras do pedido de correção: é o mesmo tipo de mudança, e o que
+    // um caminho recusa o outro não pode aceitar.
+    crate::domains::edit_requests::actions::validate_changes(changes)?;
+
+    crate::domains::edit_requests::repository::EditRequestRepository::apply_changes(
+        conn, id, changes,
+    )?;
+
+    OrganizationRepository::find_by_id(conn, w, id)
+}
+
 /// Aprova ou rejeita um cadastro, registrando quem decidiu.
 pub fn review_organization(
     conn: &mut DbConnection,

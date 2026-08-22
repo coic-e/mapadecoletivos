@@ -8,5 +8,6 @@ pub mod errors;
 pub mod handlers;
 pub mod http;
 pub mod migrations;
+pub mod ops;
 pub mod rate_limit;
 pub mod storage;
