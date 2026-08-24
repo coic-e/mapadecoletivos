@@ -46,7 +46,7 @@ escondê-lo, e sim restringi-lo por URL no painel do Mapbox, para ele só
 responder a partir dos seus domínios. Ele é público de propósito; o segredo que
 não pode vazar é o `JWT_SECRET`, que vive na API e nunca chega ao front.
 
-Sem `VITE_SITE_URL`, o build de produção avisa no console e cai em `http://localhost:5173` — o que faz o Google indexar URLs de localhost. Defina no ambiente de deploy.
+Sem `VITE_SITE_URL`, o build avisa no console e usa `https://mapaderave.com.br`. O padrão é o domínio de produção, e não localhost, porque este valor só alimenta canonical, Open Graph, JSON-LD, `robots.txt` e `sitemap.xml`: um deploy que perdeu a variável anuncia o endereço certo em vez de mandar o Google indexar URLs de localhost.
 
 ## Modo de demonstração
 

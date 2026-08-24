@@ -9,7 +9,8 @@ const envSchema = z.object({
   VITE_MAPBOX_STYLE_ID: z.string().min(1, "VITE_MAPBOX_STYLE_ID is required"),
   VITE_MAPBOX_ACCESS_TOKEN: z.string().min(1, "VITE_MAPBOX_ACCESS_TOKEN is required"),
   /** URL absoluta do site, usada em canonical e Open Graph. Opcional em dev. */
-  VITE_SITE_URL: z.string().default(""),
+  /** Mesmo padrão do vite.config: o domínio de produção. */
+  VITE_SITE_URL: z.string().default("https://mapaderave.com.br"),
   /**
    * URL da API. Precisa ser https fora de localhost: em página https, uma API
    * http é bloqueada pelo navegador como conteúdo misto — e, quando passa, o
