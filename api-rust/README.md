@@ -1,173 +1,116 @@
-# Mapadecoletivos API - Rust
+# API do Mapa de Rave
 
-High-performance Rust implementation of the Mapadecoletivos API using Actix-web and Diesel ORM.
+API em Rust — Actix-web 4 e Diesel 2 sobre Postgres. Serve o mapa público, recebe os cadastros e sustenta a moderação.
 
-## Features
-
-- ✅ REST API with 3 endpoints (GET /collectives, GET /collectives/:id, POST /collectives)
-- ✅ PostgreSQL database with Diesel ORM
-- ✅ File upload support with validation
-- ✅ Custom view/serialization layer
-- ✅ Portuguese validation messages
-- ✅ Error handling with proper HTTP status codes
-- ✅ CORS support
-- ✅ Static file serving for uploaded images
-- ✅ Pagination support for list endpoint
-- ✅ Configurable via environment variables
-- ✅ Docker support
-
-## Architecture
-
-### Tech Stack
-
-- **Web Framework**: Actix-web 4.x
-- **ORM**: Diesel 2.x with PostgreSQL
-- **Validation**: Validator crate with custom Portuguese messages
-- **Serialization**: Serde with custom view layer
-- **File Upload**: Actix-multipart with disk storage
-- **Error Handling**: Thiserror with custom ApiError enum
-
-### Project Structure
+## Estrutura
 
 ```
-../db-types/                   # Crate: database types
-└── src/
-    ├── schema.rs             # Diesel schema (auto-generated)
-    ├── organization.rs       # Organization entity & validation
-    └── image.rs              # Image entity
-../api-types/                  # Crate: API request/response types
-└── src/
-    ├── organization_view.rs  # JSON transformation for organizations
-    └── image_view.rs         # JSON transformation for images
+../db-types/          # Modelos do Diesel e o schema. Nada aqui é serializável para HTTP.
+../api-types/         # Views: o que a API serializa. É só isto que o front conhece.
 src/
-├── main.rs                    # Application entry point
-├── lib.rs                     # Library exports for testing
-├── config.rs                  # Configuration from environment
-├── db.rs                      # Database connection pool
-├── errors/
-│   └── api_error.rs          # Custom error types
-├── domains/
-│   └── organizations/
-│       ├── routes.rs         # HTTP request handlers
-│       ├── actions.rs        # Business logic
-│       └── repository.rs     # Database operations
-└── handlers/
-    └── upload.rs             # File upload processing
-migrations/
-├── *_create_organizations/   # Database migration for organizations table
-└── *_create_images/          # Database migration for images table
+├── main.rs           # Sobe migrações, pool e servidor, nessa ordem
+├── app.rs            # Monta o App do actix; compartilhado com os testes
+├── config.rs         # Configuração vinda do ambiente, validada na subida
+├── db.rs             # Pool r2d2
+├── migrations.rs     # Migrações embutidas no binário
+├── bootstrap.rs      # Semente do primeiro moderador
+├── storage.rs        # Bucket S3
+├── rate_limit.rs     # Limite por IP, em memória
+├── auth/             # Senha, JWT e o extractor AdminIdentity
+├── errors/           # ApiError e a tradução para status HTTP
+├── handlers/upload.rs
+└── domains/
+    ├── organizations/   routes · actions · repository · auth
+    ├── edit_requests/   routes · actions · repository · auth
+    └── admins/          routes · actions · repository
 ```
 
-## Prerequisites
+Cada domínio tem quatro arquivos com papéis fixos: `routes` fala HTTP, `actions` tem a regra e a transação, `repository` fala com o banco, `auth` diz quem pode o quê. `db-types` e `api-types` existem para que linha de banco e resposta de API não sejam o mesmo tipo — um campo novo no banco não vaza para o JSON sozinho.
 
-- Rust 1.78+ (install via [rustup](https://rustup.rs/))
-- PostgreSQL 12+ (running locally or via Docker)
-- Diesel CLI: `cargo install diesel_cli --no-default-features --features postgres`
+## Rodando
 
-## Setup
-
-### 1. Clone and Navigate
+Pelo compose, da raiz do repositório:
 
 ```bash
-cd api-rust
+docker compose up -d
 ```
 
-### 2. Configure Environment
+Fora do Docker:
 
 ```bash
 cp .env.example .env
+cargo run -p api-rust
 ```
 
-Edit `.env` with your configuration:
+As migrações rodam **na subida da API**, não no build: não há passo manual depois do deploy. Falha ao migrar derruba o processo em vez de servir com o schema errado.
 
-```env
-DATABASE_URL=postgresql://docker:ravemap@localhost:5432/rave_map
-SERVER_HOST=0.0.0.0
-SERVER_PORT=8080
-UPLOAD_DIR=uploads
-MAX_FILE_SIZE=10485760  # 10MB
-BASE_URL=http://localhost:8080
-RUST_LOG=info
-```
+## Variáveis de ambiente
 
-### 3. Set Up Database
+Sem as obrigatórias a API não sobe, e o erro lista todas as que faltam de uma vez.
 
-Start PostgreSQL with Docker and run migrations:
+| Variável | Padrão | Para quê |
+|---|---|---|
+| `DATABASE_URL` | — **obrigatória** | Postgres |
+| `JWT_SECRET` | — **obrigatória** | assina os tokens; mínimo 32 caracteres, e os valores de exemplo do repositório são recusados |
+| `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | — **obrigatórias** | bucket das imagens |
+| `S3_ENDPOINT` | vazio | vazio na AWS; `http://rustfs:9000` no compose; `https://<ID>.r2.cloudflarestorage.com` no R2 |
+| `S3_PUBLIC_BASE_URL` | — **obrigatória** | como o **navegador** chega nas imagens |
+| `S3_REGION` | `us-east-1` | no R2, `auto` |
+| `S3_FORCE_PATH_STYLE` | ligado quando há endpoint | AWS usa subdomínio; RustFS e MinIO usam caminho |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | lista separada por vírgula. `*` é recusado |
+| `SERVER_HOST` / `SERVER_PORT` | `0.0.0.0` / `8080` | o processo roda sem root, então não use porta abaixo de 1024 |
+| `JWT_TTL_HOURS` | `8` | validade da sessão do moderador |
+| `MAX_FILE_SIZE` | 5 MB | por arquivo |
+| `MAX_FILES_PER_REQUEST` | `6` | fotos por cadastro |
+| `MAX_REQUEST_SIZE` | 32 MB | corpo inteiro |
+| `MAX_FIELD_SIZE` | 16 KB | por campo de texto |
+| `LOGIN_RATE_LIMIT` | `5` | tentativas de login por janela, por IP |
+| `SUBMISSION_RATE_LIMIT` | `10` | cadastros por janela, por IP |
+| `RATE_LIMIT_WINDOW_SECS` | `300` | tamanho da janela |
+| `TRUST_PROXY` | desligado | ligue **só** atrás de proxy que escreve `X-Forwarded-For`; ligado sem proxy, qualquer um forja o próprio IP e escapa do limite |
+| `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | — | semente do primeiro moderador; ver abaixo |
 
-```bash
-docker-compose up -d database  # Starts PostgreSQL
-diesel setup                   # Creates database and runs migrations
-```
+O limite de taxa vive **em memória do processo**: com mais de uma réplica cada uma conta o seu, e reiniciar zera. Para o volume de hoje serve; se crescer, o estado precisa sair para o Redis.
 
-### 4. Run Application
+> `BASE_URL` ainda é lida, mas só aparece numa linha de log na subida. Nada depende dela.
 
-```bash
-cargo run
-```
+## Rotas
 
-Server starts on `http://0.0.0.0:8080`
+### Públicas
 
-For production build:
+| Rota | O que faz |
+|---|---|
+| `GET /organizations` | O mapa. Só `approved`. Aceita `limit` e `offset` |
+| `GET /organizations/{id_ou_slug}` | Numérico é id, o resto é slug — os dois porque o site linka por slug e links antigos com id ainda circulam |
+| `POST /organizations` | Cadastro novo, nasce pendente |
+| `POST /organizations/{id_ou_slug}/edit-requests` | Sugestão de correção, sem login |
+| `GET /health` · `GET /health/ready` | Sondas |
 
-```bash
-cargo build --release
-./target/release/api-rust
-```
+### De moderação
 
-## API Endpoints
+Todas exigem `Authorization: Bearer <jwt>`; sem ele, 401.
 
-### List Collectives
+| Rota | O que faz |
+|---|---|
+| `POST /auth/login` | `{ "email", "password" }` → `{ "token", "admin" }` |
+| `GET /auth/me` | O admin do token; o painel usa para saber se a sessão vale |
+| `GET /admin/organizations?status=` | Fila. `pending` (padrão), `approved`, `rejected` ou `all`. Mais antigos primeiro |
+| `GET /admin/organizations/{id}` | Detalhe, em qualquer estado |
+| `PATCH /admin/organizations/{id}` | Edição direta. Campo ausente fica como está, e o cadastro não volta para a fila |
+| `POST /admin/organizations/{id}/approve` | Passa a aparecer no site |
+| `POST /admin/organizations/{id}/reject` | Sai do site **e apaga as imagens do bucket**. Corpo opcional: `{ "reason": "..." }` |
+| `GET /admin/edit-requests?status=` | Fila de sugestões |
+| `POST /admin/edit-requests/{id}/apply` | Aplica a sugestão ao cadastro |
+| `POST /admin/edit-requests/{id}/reject` | Descarta |
 
-```http
-GET /collectives?limit=10&offset=0
-```
-
-Returns array of collectives with images. Supports pagination.
-
-**Response:**
-```json
-[
-  {
-    "id": 1,
-    "name": "Coletivo Example",
-    "latitude": -23.55,
-    "longitude": -46.63,
-    "type": "Sound System",
-    "city": "São Paulo",
-    "uf": "SP",
-    "email": "contact@example.com",
-    "social": "https://instagram.com/example",
-    "about": "Description...",
-    "images": [
-      {
-        "id": 1,
-        "url": "http://localhost:8080/uploads/1234567890-image.jpg"
-      }
-    ]
-  }
-]
-```
-
-### Get Single Collective
-
-`GET /organizations/{id_ou_slug}` aceita as duas formas: numérico é id, o resto é slug. Os dois existem porque o site passou a linkar por slug, mas links antigos com id continuam circulando por aí.
-
-```http
-GET /collectives/:id
-```
-
-Returns single collective with images.
-
-**Response:** Same structure as array item above, or 404 if not found.
-
-### Create Collective
+## Cadastro
 
 ```http
 POST /organizations
 Content-Type: multipart/form-data
 ```
 
-Cria com `status = "pending"`: o cadastro só aparece no site depois que um moderador aprova.
+Nasce com `status = "pending"`: só aparece no site depois que um moderador aprova.
 
 **Obrigatórios**
 
@@ -183,58 +126,36 @@ Cria com `status = "pending"`: o cadastro só aparece no site depois que um mode
 | `genres` | um ou mais da lista fechada, **separados por vírgula num campo só** — os campos do multipart viram um mapa, então nome repetido se sobrescreveria |
 | `images` | ao menos um arquivo |
 
-**Opcionais:** `address`, `instagram`, `soundcloud`, `bandcamp`, `youtube`, `spotify`, `website`, `frequency` (Semanal, Quinzenal, Mensal, Sazonal, Pontual), `is_active` (ausente significa ativo) e `cover_index` (qual das fotos enviadas é a capa, pela ordem de envio; ausente ou fora da faixa usa a primeira).
+**Opcionais:** `address`, `instagram`, `soundcloud`, `bandcamp`, `youtube`, `spotify`, `website`, `frequency` (Semanal, Quinzenal, Mensal, Sazonal, Pontual), `is_active` (ausente significa ativo) e `cover_index` (qual das fotos é a capa, pela ordem de envio; ausente ou fora da faixa usa a primeira).
 
 O `slug` é derivado do nome na criação e devolvido na resposta. Nome repetido ganha sufixo numérico — `deposito-42`, `deposito-42-2` — resolvido dentro da transação para duas requisições simultâneas não saírem com o mesmo slug.
 
 **Regra que cruza campos:** pelo menos um dos seis links precisa vir preenchido, senão o cadastro não serve para achar o rolê. O erro volta em `errors.__all__`, não preso a um campo.
 
-Os gêneros aceitos estão em `MUSIC_GENRES`, em `db-types/src/organization.rs`. A lista é fechada dos dois lados porque é ela que sustenta o filtro do mapa: texto livre viraria "techno", "Techno" e "tekno" como três coisas diferentes.
+Os gêneros aceitos estão em `MUSIC_GENRES`, em `db-types/src/organization.rs`, e a mesma lista existe em `app/src/pages/create-organization.schema.ts`. **As duas precisam bater**: divergindo, o formulário aceita e a API recusa. A lista é fechada porque é ela que sustenta o filtro do mapa — texto livre viraria "techno", "Techno" e "tekno" como três coisas diferentes.
 
-### Healthcheck
+## Pedidos de correção
 
-São duas sondas, porque respondem perguntas diferentes.
+Quem vê um dado errado no site sugere a correção sem ter conta:
 
-| Rota | Responde | Verifica |
-|---|---|---|
-| `GET /health` | 200 sempre que o processo está de pé | nada externo |
-| `GET /health/ready` | 200 ou **503** | banco e bucket, com teto de 3s cada |
-
-```json
-// GET /health/ready com o bucket fora do ar
-{ "status": "unavailable", "database": "ok", "storage": { "error": "tempo esgotado" } }
+```http
+POST /organizations/{id_ou_slug}/edit-requests
+{ "changes": { "city": "Campinas" }, "message": "mudaram de cidade", "requester_email": "quem@sugeriu.com" }
 ```
 
-Use `/health` para política de **reinício**: derrubar o container porque o Postgres piscou não conserta nada e ainda tira a API do ar junto. Use `/health/ready` para decidir **roteamento de tráfego** — é o que diz se esta instância consegue atender.
+`changes` aceita qualquer subconjunto dos campos editáveis; o que não vier fica como está. A sugestão **não altera nada** — entra numa fila e só vale quando a moderação aplica. Aplicar grava `reviewed_by` e `reviewed_at`, e o cadastro continua no estado em que estava.
 
-No EasyPanel, o campo de health check é o `/health/ready` se ele apenas marcar o serviço como indisponível; se ele reiniciar o container ao falhar, aponte para `/health`.
-
-A resposta diz **qual** dependência falhou, de propósito: sonda que só responde "não" obriga quem está de plantão a adivinhar.
-
-## Imagens
-
-Ficam num bucket compatível com S3, nunca no disco do container — disco de container é efêmero e não é compartilhado entre réplicas.
-
-O upload é validado por *magic bytes* antes de subir: o formato sai do conteúdo, não do nome nem do content-type que o cliente mandou, e SVG é recusado por ser documento que executa script. O nome do objeto é sorteado, o content-type gravado vem da detecção, e envio que falha no meio tem os objetos já subidos apagados.
-
-O banco guarda **só a chave do objeto**; a URL é montada na resposta a partir de `S3_PUBLIC_BASE_URL`. Trocar de provedor ou pôr um CDN na frente não exige migração de dados.
-
-| Variável | Para quê |
-|---|---|
-| `S3_ENDPOINT` | vazio para AWS S3; `http://rustfs:9000` no compose; `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` no R2 |
-| `S3_BUCKET` | nome do bucket |
-| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | credenciais |
-| `S3_PUBLIC_BASE_URL` | como o navegador chega nas imagens (CDN, se houver) |
-| `S3_REGION` | padrão `us-east-1` |
-| `S3_FORCE_PATH_STYLE` | padrão: ligado quando há endpoint, desligado na AWS |
-
-Em produção, a política do bucket deve permitir apenas `s3:GetObject` em `arn:aws:s3:::<bucket>/*`. Liberar `ListBucket` expõe o nome de toda imagem enviada, inclusive de cadastros que a moderação nunca aprovou.
+Editar é só da moderação. A porta aberta é a de sugerir.
 
 ## Moderação
 
-Cadastro criado pelo site nasce com `status = "pending"` e **não aparece nas rotas públicas**. `GET /organizations` e `GET /organizations/{id}` só enxergam `approved` — um cadastro pendente responde 404, e não "existe mas está escondido".
+Cadastro criado pelo site nasce `pending` e **não aparece nas rotas públicas**. `GET /organizations` e `GET /organizations/{id}` só enxergam `approved` — um cadastro pendente responde 404, e não "existe mas está escondido".
 
 Os três estados são `pending`, `approved` e `rejected`, garantidos por um CHECK no banco.
+
+Rejeitar apaga os arquivos do bucket, e por isso é definitivo: aprovar depois produziria um cadastro sem imagem nenhuma. O motivo é custo — um envio automatizado empurra dezenas de megabytes por vez. As linhas do banco ficam, com o motivo da recusa.
+
+Aprovação e rejeição gravam `reviewed_at` e `reviewed_by`.
 
 ### Criando o primeiro moderador
 
@@ -248,162 +169,101 @@ ADMIN_EMAIL=voce@dominio.com
 ADMIN_PASSWORD=            # mínimo 12 caracteres
 ```
 
-A API cria a conta na subida **apenas quando não existe nenhum moderador**. É semente de primeira subida, não fonte permanente de senha: se aplicasse a senha a cada boot, quem tivesse acesso ao painel assumiria a conta editando a variável e reiniciando o serviço. Nas subidas seguintes ela é ignorada e o log avisa para removê-la do ambiente — e vale remover mesmo, porque variável de ambiente aparece em `docker inspect` e em `/proc/<pid>/environ`.
+A API cria a conta na subida **apenas quando não existe nenhum moderador**. É semente de primeira subida, não fonte permanente de senha: se aplicasse a senha a cada boot, quem tivesse acesso ao painel assumiria a conta editando a variável e reiniciando o serviço. Nas subidas seguintes ela é ignorada e o log avisa para removê-la — e vale remover mesmo, porque variável de ambiente aparece em `docker inspect` e em `/proc/<pid>/environ`.
 
 Senha menor que 12 caracteres **derruba a subida**, em vez de criar uma conta fraca em silêncio.
 
 **Pelo binário**, para criar moderadores depois do primeiro:
 
 ```bash
-create_admin "Nome" email@dominio.com
+docker compose exec rust-api create_admin "Nome" email@dominio.com
 ```
 
-A senha vem pela entrada padrão, nunca por argumento — argumento de processo aparece na lista de processos e no histórico do shell. Funciona em pipe também: `echo "senha" | create_admin ...`.
+A senha vem pela entrada padrão, nunca por argumento — argumento de processo aparece na lista de processos e no histórico do shell. Funciona em pipe: `echo "senha" | create_admin ...`.
 
-### Autenticação
+Senha guardada com argon2. E-mail inexistente e senha errada devolvem a mesma mensagem e gastam o mesmo tempo, de propósito: a diferença revelaria quais e-mails existem.
 
-```http
-POST /auth/login
-{ "email": "...", "password": "..." }
-→ 200 { "token": "<jwt>", "admin": { "id": 1, "name": "...", "email": "..." } }
-→ 401 { "message": "E-mail ou senha inválidos" }
+## Autorização: a prova mora no tipo
+
+A regra que sustenta o site é que cadastro pendente ou rejeitado não existe para quem está de fora. Ela poderia morar só na escolha de qual função do repositório o handler chama — `find_approved_by_id` filtra por status, `find_by_id` não. As duas têm a mesma assinatura e nomes parecidos, e nada impediria uma rota pública de chamar a errada.
+
+Então quem enxerga qualquer estado exige uma prova, `SeeEveryStatus`, que só pode ser construída em `domains/organizations/auth.rs` e só a partir de um moderador autenticado. Rota pública não tem como produzir uma, então **não compila**.
+
+A prova é um extractor: o handler pede o direito de que precisa, e a autenticação, o 401 e a decisão inteira ficam no `auth.rs`.
+
+```rust
+#[get("/admin/organizations")]
+pub async fn moderation_index(
+    w: SeeEveryStatus,
+    ...
 ```
 
-O token vai nas rotas administrativas como `Authorization: Bearer <jwt>` e vale `JWT_TTL_HOURS` horas (12 por padrão). `GET /auth/me` devolve o admin do token — o painel usa para saber se a sessão ainda vale.
+O que isso fecha e o que não fecha: fecha o acidente de uma rota pública chamar a query errada. Não é barreira contra quem fabrica a identidade na mão — é assim que os testes montam a sua. Fechar isso protegeria contra um ato deliberado, que apareceria na revisão de qualquer jeito.
 
-Senha é guardada com argon2. E-mail inexistente e senha errada devolvem a mesma mensagem, de propósito: a diferença revelaria quais e-mails existem.
+## Imagens
 
-### Rotas de moderação
+Ficam num bucket compatível com S3, nunca no disco do container — disco de container é efêmero e não é compartilhado entre réplicas.
 
-Todas exigem Bearer token; sem ele, 401.
+O upload é validado por *magic bytes* antes de subir: o formato sai do conteúdo, não do nome nem do content-type que o cliente mandou, e SVG é recusado por ser documento que executa script. O nome do objeto é sorteado, o content-type gravado vem da detecção, e envio que falha no meio tem os objetos já subidos apagados.
 
-| Rota | O que faz |
-|---|---|
-| `GET /admin/organizations?status=pending` | Fila de revisão. `status` aceita `pending`, `approved`, `rejected` ou `all`; o padrão é `pending`. Mais antigos primeiro. |
-| `GET /admin/organizations/{id}` | Detalhe, em qualquer estado |
-| `POST /admin/organizations/{id}/approve` | Passa a aparecer no site |
-| `POST /admin/organizations/{id}/reject` | Sai do site **e apaga as imagens do bucket**. Corpo opcional: `{ "reason": "..." }` |
+O banco guarda **só a chave do objeto**; a URL é montada na resposta a partir de `S3_PUBLIC_BASE_URL`. Trocar de provedor ou pôr um CDN na frente não exige migração de dados.
 
-Rejeitar apaga os arquivos do bucket, e por isso é definitivo: aprovar depois produziria um cadastro sem imagem nenhuma. O motivo é custo — um envio automatizado empurra dezenas de megabytes por vez, e guardar as fotos de tudo que a moderação recusou faz a conta crescer sem nada em troca. As linhas do banco ficam, com o motivo da recusa.
+Em produção a política do bucket deve permitir apenas `s3:GetObject` em `arn:aws:s3:::<bucket>/*`. Liberar `ListBucket` expõe o nome de toda imagem enviada, inclusive de cadastros que a moderação nunca aprovou.
 
-Aprovação e rejeição gravam `reviewed_at` e `reviewed_by`, então dá para saber quem decidiu o quê e quando.
+## Healthcheck
 
-## Development
+| Rota | Responde | Verifica |
+|---|---|---|
+| `GET /health` | 200 sempre que o processo está de pé | nada externo |
+| `GET /health/ready` | 200 ou **503** | banco e bucket, com teto de 3s cada |
 
-### Run Tests
+```json
+// GET /health/ready com o bucket fora do ar
+{ "status": "unavailable", "database": "ok", "storage": { "error": "tempo esgotado" } }
+```
+
+Use `/health` para política de **reinício**: derrubar o container porque o Postgres piscou não conserta nada e ainda tira a API do ar junto. Use `/health/ready` para decidir **roteamento de tráfego**.
+
+No EasyPanel, aponte para `/health/ready` se ele apenas marcar o serviço como indisponível; se ele reiniciar o container ao falhar, aponte para `/health`.
+
+A resposta diz **qual** dependência falhou, de propósito: sonda que só responde "não" obriga quem está de plantão a adivinhar.
+
+## Testes
 
 ```bash
-# Unit tests (no database required)
 cargo test
-
-# Integration tests (requires database)
-DATABASE_URL=postgresql://docker:ravemap@localhost:5432/rave_map cargo test --features integration_tests
 ```
 
-### Check Code
+**Cuidado:** os testes que precisam de Postgres se anunciam como pulados quando `TEST_DATABASE_URL` não está definida, e o `cargo test` termina verde do mesmo jeito. São 53 dos 173 — a moderação inteira, os pedidos de correção, o contrato HTTP e o acesso administrativo. Para rodar tudo de verdade:
 
 ```bash
-cargo check           # Fast compilation check
-cargo clippy          # Linter suggestions
-cargo fmt             # Format code
+docker compose up -d database
+docker compose exec database psql -U docker -d postgres -c "CREATE DATABASE rave_map_test;"
+
+TEST_DATABASE_URL=postgres://docker:ravemap@localhost:5432/rave_map_test cargo test
 ```
 
-### Database Migrations
+A variável é separada de `DATABASE_URL` de propósito, e apontar as duas para o mesmo lugar é recusado em tempo de execução: estes testes apagam tabela para montar o cenário.
 
 ```bash
-# Create new migration
-diesel migration generate migration_name
+cargo clippy --all-targets
+cargo fmt
+```
 
-# Run pending migrations
-diesel migration run
+## Migrações
 
-# Rollback last migration
+Ficam em `migrations/` e são **embutidas no binário**, então o deploy não precisa do CLI do Diesel. Para criar uma:
+
+```bash
+diesel migration generate nome_da_mudanca
+diesel migration run       # aplica e regenera db-types/src/schema.rs
 diesel migration revert
-
-# Regenerate schema.rs
-diesel migration run
 ```
 
-## Docker Deployment
+## Deploy
 
-### Build and Run with Docker Compose
+O `Dockerfile` está na **raiz do repositório**, e é lá que o contexto de build precisa apontar: a API é um crate de um workspace e o build usa o `Cargo.toml` da raiz mais `api-types` e `db-types`. No EasyPanel o campo é **Build path**; deixe em `/`. Apontar para `/api-rust` falha com `COPY api-types api-types: "/api-types": not found`.
 
-```bash
-docker-compose up -d
-```
+A imagem é Debian slim, não Alpine, porque o Diesel linka com `libpq`.
 
-This will:
-- Build Rust API container
-- Start PostgreSQL database
-- Expose API on port 8080
-- Mount `./uploads` directory
-
-### Manual Docker Build
-
-```bash
-docker build -t mapadecoletivos-rust-api .
-docker run -p 8080:8080 --env-file .env mapadecoletivos-rust-api
-```
-
-## Implementation Status
-
-### ✅ Completed
-- Database models and migrations
-- Repository layer with CRUD operations
-- View/serialization layer with proper JSON transformation
-- Error handling system with Portuguese validation messages
-- GET endpoints (index, show) with pagination
-- Static file serving for uploads
-- CORS middleware
-- Logging middleware
-- Environment-based configuration
-- Docker configuration
-- Integration test structure
-
-### ⚠️ Needs Work
-- **POST /collectives**: Multipart form data parsing needs completion
-  - File upload logic is implemented
-  - Need to extract and parse text fields from multipart payload
-  - Need to integrate validation before file saving
-  
-- **Cleanup logic**: Implement orphaned file cleanup on failed transactions
-
-### 🔜 Future Enhancements
-- Authentication/Authorization
-- Rate limiting
-- Request validation middleware
-- Update/Delete endpoints
-- Image compression/optimization
-- Database connection pooling optimization
-- Comprehensive integration test suite
-
-## Troubleshooting
-
-### Database connection failed
-```
-Error: Connection refused port 5432
-```
-**Solution**: Ensure PostgreSQL is running:
-```bash
-docker-compose up -d database
-```
-
-### Migrations already ran
-```
-Error: Migration X has already been run
-```
-**Solution**: Skip if database already has tables.
-
-### Port already in use
-```
-Error: Address already in use (os error 98)
-```
-**Solution**: Change `SERVER_PORT` in `.env` or stop conflicting service.
-
-## Contributing
-
-This is part of the Mapadecoletivos monorepo. See main README for contribution guidelines.
-
-## License
-
-See root LICENSE file.
+O processo roda como uid 10001 e escuta em 8080. Se o painel proxeia para a porta 80, o serviço responde 502 — não é possível ligar em porta abaixo de 1024 sem root.

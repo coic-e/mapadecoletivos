@@ -116,7 +116,9 @@ Cadastro novo entra como pendente e só aparece no mapa depois que um moderador 
 
 `index.html` carrega as meta tags estáticas e `useSeo` ajusta título, descrição e canonical por rota. `robots.txt` e `sitemap.xml` são gerados no build por um plugin do Vite, a partir de `VITE_SITE_URL` — por isso não estão em `public/`, onde arquivos são copiados sem substituição de variável.
 
-**Limitação conhecida:** o app é uma SPA sem SSR. O Google executa JS e indexa normalmente, mas os robôs de preview (WhatsApp, Instagram, Facebook, Twitter) não executam — eles leem só o `index.html`. Compartilhar o link de um rolê específico mostra o preview genérico da home até que as rotas sejam pré-renderizadas. Falta também um `public/og-cover.png` de 1200×630, referenciado pelas tags Open Graph.
+A imagem de compartilhamento é `public/og-cover.jpg`, 1200×630 e 202 KB, recortada de `design/capa.png`. O tamanho importa: o WhatsApp descarta imagem grande demais em vez de mostrar. **O build falha** se as tags Open Graph apontarem para um arquivo que não está em `public/` — foi assim que elas ficaram apontando para um `og-cover.png` inexistente sem ninguém notar, já que a falha só aparece quando alguém cola o link em algum lugar.
+
+**Limitação conhecida:** o app é uma SPA sem SSR. O Google executa JS e indexa normalmente, mas os robôs de preview (WhatsApp, Instagram, Facebook, Twitter) não executam — eles leem só o `index.html`. Compartilhar o link de um rolê específico mostra o preview genérico da home até que as rotas sejam pré-renderizadas.
 
 ## Deploy
 

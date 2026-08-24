@@ -11,7 +11,6 @@ mapadecoletivos/
 ├── api-types/        # Crate: tipos de resposta da API (views serializadas)
 ├── db-types/         # Crate: modelos do banco (Diesel)
 ├── api-legada/       # API antiga em Node/TypeORM — mantida só como referência
-├── uploads/          # Imagens enviadas pelo cadastro (bind mount do container)
 ├── Cargo.toml        # Workspace Rust (api-rust, api-types, db-types)
 ├── Dockerfile        # Build da API Rust; o contexto é a raiz do workspace
 └── docker-compose.yml # Postgres + API Rust
@@ -86,7 +85,9 @@ diesel migration run
 cargo run
 ```
 
-Documentação completa da API — endpoints, payloads, estrutura — em [`api-rust/README.md`](api-rust/README.md).
+Documentação completa da API — endpoints, payloads, estrutura, variáveis de ambiente — em [`api-rust/README.md`](api-rust/README.md).
+
+> Os testes que precisam de Postgres se anunciam como pulados quando `TEST_DATABASE_URL` não está definida, e o `cargo test` termina verde do mesmo jeito — são 53 dos 173. O README da API tem o comando que roda tudo.
 
 ## Deploy da API em painel (EasyPanel, Coolify, Dokploy)
 
