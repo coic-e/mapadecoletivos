@@ -26,7 +26,7 @@ log = "0.4"
 futures-util = "0.3"
 bigdecimal = { version = "0.4", features = ["serde"] }
 argon2 = "0.5"
-jsonwebtoken = "9"
+jsonwebtoken = "11"
 aws-sdk-s3 = { version = "1", default-features = false, features = ["rt-tokio", "rustls", "sigv4a"] }
 diesel_migrations = "2"
 async-trait = "0.1"
