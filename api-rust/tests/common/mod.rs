@@ -47,6 +47,51 @@ pub fn config() -> AppConfig {
 /// A origem que `config()` autoriza.
 pub const ALLOWED_ORIGIN: &str = "https://mapa.exemplo.com";
 
+/// Pool que nunca abre conexão.
+///
+/// O `establish_connection_pool` de produção conecta na hora e derruba a subida
+/// se o banco não responde — o que é o certo lá, e inviável aqui. Este usa
+/// `build_unchecked`, que só guarda a configuração, e um timeout curto: se
+/// algum caso encostar no banco sem querer, ele falha em um segundo em vez de
+/// pendurar a suíte.
+pub fn pool_that_never_connects() -> api_rust::db::DbPool {
+    use diesel::r2d2::{ConnectionManager, Pool};
+
+    let manager =
+        ConnectionManager::<diesel::PgConnection>::new("postgres://ninguem@127.0.0.1:1/nao-usado");
+
+    Pool::builder()
+        .max_size(1)
+        .min_idle(Some(0))
+        .connection_timeout(std::time::Duration::from_secs(1))
+        .build_unchecked(manager)
+}
+
+/// Store em memória para os testes de HTTP, que não exercitam o bucket.
+pub struct NoopStore;
+
+#[async_trait::async_trait]
+impl api_rust::storage::ImageStore for NoopStore {
+    async fn put_image(
+        &self,
+        _key: &str,
+        _bytes: Vec<u8>,
+        _content_type: &'static str,
+    ) -> Result<(), api_rust::errors::ApiError> {
+        Ok(())
+    }
+
+    async fn remove(&self, _keys: &[String]) {}
+
+    async fn check(&self) -> Result<(), api_rust::errors::ApiError> {
+        Ok(())
+    }
+
+    fn public_url(&self, key: &str) -> String {
+        format!("http://fake/{key}")
+    }
+}
+
 // --------------------------------------------------------------- banco
 
 use std::sync::OnceLock;
@@ -162,6 +207,20 @@ pub fn admin(conn: &mut DbConnection) -> db_types::admin::Admin {
         },
     )
     .expect("deveria criar o moderador")
+}
+
+/// A prova de moderação para um admin criado no teste.
+///
+/// Passa pela mesma porta que as rotas usam: não há atalho para fabricar o
+/// witness, nem no teste.
+pub fn moderating(
+    admin: &db_types::admin::Admin,
+) -> api_rust::domains::organizations::auth::SeeEveryStatus {
+    api_rust::domains::organizations::auth::moderating(&api_rust::auth::AdminIdentity {
+        id: admin.id,
+        name: admin.name.clone(),
+        email: admin.email.clone(),
+    })
 }
 
 /// Cadastro válido, pronto para ser criado.

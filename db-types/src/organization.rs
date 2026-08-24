@@ -1,19 +1,25 @@
 use bigdecimal::BigDecimal;
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use validator::{Validate, ValidationError};
 
 use crate::schema::organizations;
 
-#[derive(Debug, Clone, Queryable, Identifiable, Serialize, Deserialize)]
+/// Linha da tabela, não resposta.
+///
+/// Sem `Serialize` de propósito: com ele, `HttpResponse::Ok().json(organization)`
+/// compilaria numa rota pública e mandaria `reviewed_by`, `reviewed_at` e
+/// `rejection_reason` junto — o rastro interno da moderação. Quem sai para o
+/// navegador é `OrganizationView`, em api-types, e a única forma de chegar lá é
+/// passando por ela.
+#[derive(Debug, Clone, Queryable, Identifiable)]
 #[diesel(table_name = organizations)]
 pub struct Organization {
     pub id: i32,
     pub name: String,
     pub latitude: BigDecimal,
     pub longitude: BigDecimal,
-    #[serde(rename = "type")]
     pub type_: String,
     pub city: String,
     pub uf: String,

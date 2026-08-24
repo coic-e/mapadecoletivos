@@ -14,42 +14,9 @@ use std::env;
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::process::ExitCode;
 
-use api_rust::auth::hash_password;
-use api_rust::domains::admins::repository::AdminRepository;
-use db_types::admin::NewAdmin;
+use api_rust::domains::admins::actions;
 use diesel::pg::PgConnection;
 use diesel::r2d2::{ConnectionManager, Pool};
-use validator::Validate;
-
-/// Senha mínima aceitável para uma conta que aprova e rejeita cadastros.
-/// Comprimento pesa mais que variedade de símbolos contra ataque offline.
-const MIN_PASSWORD_LEN: usize = 12;
-
-/// Senhas que aparecem no topo de qualquer lista de vazamento.
-const OBVIOUS_PASSWORDS: &[&str] = &[
-    "password",
-    "senha123",
-    "12345678",
-    "123456789012",
-    "administrador",
-    "adminadmin",
-];
-
-fn check_password_strength(password: &str) -> Result<(), String> {
-    if password.chars().count() < MIN_PASSWORD_LEN {
-        return Err(format!(
-            "a senha precisa de pelo menos {MIN_PASSWORD_LEN} caracteres"
-        ));
-    }
-
-    let lowered = password.to_lowercase();
-
-    if OBVIOUS_PASSWORDS.iter().any(|obvious| lowered == *obvious) {
-        return Err("essa senha está em toda lista de senhas vazadas".to_string());
-    }
-
-    Ok(())
-}
 
 /// Lê a senha da entrada padrão.
 ///
@@ -90,7 +57,7 @@ fn main() -> ExitCode {
         }
     };
 
-    if let Err(reason) = check_password_strength(&password) {
+    if let Err(reason) = actions::check_password_strength(&password) {
         eprintln!("erro: {reason}");
         return ExitCode::FAILURE;
     }
@@ -100,27 +67,8 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let password_hash = match hash_password(&password) {
-        Ok(hash) => hash,
-        Err(e) => {
-            eprintln!("erro ao gerar hash da senha: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-
-    let new_admin = NewAdmin {
-        name,
-        email,
-        password_hash,
-    };
-
-    if let Err(errors) = new_admin.validate() {
-        eprintln!("erro de validação: {errors}");
-        return ExitCode::FAILURE;
-    }
-
-    // O repositório trabalha com conexão do pool (DbConnection), então o
-    // binário monta um pool mínimo em vez de abrir conexão direta.
+    // As actions trabalham com conexão do pool (DbConnection), então o binário
+    // monta um pool mínimo em vez de abrir conexão direta.
     let manager =
         ConnectionManager::<PgConnection>::new(env::var("DATABASE_URL").expect("checado acima"));
 
@@ -140,7 +88,7 @@ fn main() -> ExitCode {
         }
     };
 
-    match AdminRepository::create(&mut conn, &new_admin) {
+    match actions::create(&mut conn, &name, &email, &password) {
         Ok(admin) => {
             println!(
                 "admin criado: {} <{}> (id {})",

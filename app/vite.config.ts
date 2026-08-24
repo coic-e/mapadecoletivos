@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
@@ -91,6 +93,20 @@ function cspMeta(apiUrl: string, imagesUrl: string) {
 function seoFiles(siteUrl) {
   return {
     name: "seo-files",
+
+    // O replace de %VITE_SITE_URL% do Vite usa o valor cru da variável. Se ela
+    // terminar em barra — e terminar é o normal quando se copia da barra de
+    // endereço — sai `https://site//`, e canonical apontando para um endereço
+    // que não é o real conta como conteúdo duplicado. Aqui a URL já vem
+    // normalizada, e esta substituição roda antes da do Vite, que então não
+    // acha mais nada para trocar.
+    transformIndexHtml: {
+      order: "pre",
+      handler(html) {
+        return html.replaceAll("%VITE_SITE_URL%", siteUrl);
+      },
+    },
+
     generateBundle() {
       this.emitFile({
         type: "asset",
@@ -122,6 +138,28 @@ function seoFiles(siteUrl) {
           "",
         ].join("\n"),
       });
+    },
+
+    // A imagem de compartilhamento vinha apontando para um arquivo que nunca
+    // existiu, e nada acusava: quem abre o site não percebe, o build passa, e
+    // a falha só aparece quando alguém cola o link em algum lugar. Como o
+    // build é o portão do deploy, é aqui que isso tem que gritar.
+    closeBundle() {
+      const html = readFileSync(resolve(__dirname, "dist/index.html"), "utf8");
+      const referencia = html.match(/property="og:image" content="([^"]+)"/);
+
+      if (!referencia) {
+        this.error("index.html não declara og:image");
+      }
+
+      const arquivo = referencia[1].replace(siteUrl, "");
+
+      if (!existsSync(resolve(__dirname, "dist", arquivo.replace(/^\//, "")))) {
+        this.error(
+          `og:image aponta para ${arquivo}, que não existe no build. ` +
+            "O arquivo precisa estar em public/."
+        );
+      }
     },
   };
 }
@@ -179,7 +217,13 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: "/",
-    plugins: [react(), tailwindcss(), tsconfigPaths(), seoFiles(siteUrl), cspMeta(apiUrl, imagesUrl)],
+    plugins: [
+      react(),
+      tailwindcss(),
+      tsconfigPaths(),
+      seoFiles(siteUrl),
+      cspMeta(apiUrl, imagesUrl),
+    ],
     test: {
       globals: true,
       environment: "jsdom",

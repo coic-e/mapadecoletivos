@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 use crate::config::AppConfig;
 use crate::errors::ApiError;
-use crate::storage::Storage;
+use crate::storage::ImageStore;
 
 /// Bytes que bastam para reconhecer os formatos aceitos. WebP é o mais longo:
 /// "RIFF" + 4 bytes de tamanho + "WEBP".
@@ -112,7 +112,11 @@ fn random_filename(extension: &str) -> String {
 
 /// Apaga o que já subiu quando o resto da requisição não vinga. Sem isso um
 /// envio interrompido no meio deixa objeto órfão no bucket para sempre.
-async fn abort_with(storage: &Storage, written: &[UploadedFile], error: ApiError) -> ApiError {
+async fn abort_with(
+    storage: &dyn ImageStore,
+    written: &[UploadedFile],
+    error: ApiError,
+) -> ApiError {
     let keys: Vec<String> = written.iter().map(|f| f.filename.clone()).collect();
 
     storage.remove(&keys).await;
@@ -123,7 +127,7 @@ async fn abort_with(storage: &Storage, written: &[UploadedFile], error: ApiError
 pub async fn process_multipart(
     mut payload: Multipart,
     config: &AppConfig,
-    storage: &Storage,
+    storage: &dyn ImageStore,
 ) -> Result<MultipartData, ApiError> {
     let mut uploaded_files: Vec<UploadedFile> = Vec::new();
     let mut fields = HashMap::new();
@@ -410,16 +414,15 @@ mod tests {
     }
 }
 
-/// Testes do parser de multipart.
+/// Testes do parser de multipart, contra um store em memória.
 ///
-/// Todos passam por um `Storage` apontado para um endereço morto: os caminhos
-/// exercitados aqui recusam a requisição antes de qualquer objeto subir, então
-/// a limpeza que eles disparam não tem chave nenhuma para apagar e não sai da
-/// máquina. Um caso que chegasse a subir de verdade pertence aos testes de
-/// integração, não a este módulo.
+/// Nada sai da máquina, e o store guarda o que subiria — então dá para afirmar
+/// não só que um envio ruim é recusado, mas que ele não deixa objeto para trás
+/// no caminho.
 #[cfg(test)]
 mod multipart_tests {
     use super::*;
+    use crate::storage::fake::FakeStore;
     use actix_web::{test, FromRequest};
 
     const BOUNDARY: &str = "----------------------------fronteira";
@@ -428,8 +431,8 @@ mod multipart_tests {
         AppConfig::sample()
     }
 
-    fn storage(config: &AppConfig) -> Storage {
-        Storage::new(&config.storage)
+    fn storage() -> FakeStore {
+        FakeStore::new()
     }
 
     /// Monta o corpo de um multipart. Cada parte é (cabeçalho da disposição,
@@ -463,9 +466,10 @@ mod multipart_tests {
         )
     }
 
-    async fn parse(
+    async fn parse_com(
         parts: &[(String, Vec<u8>)],
         config: &AppConfig,
+        store: &FakeStore,
     ) -> Result<MultipartData, ApiError> {
         let (req, mut payload) = test::TestRequest::default()
             .insert_header((
@@ -479,9 +483,29 @@ mod multipart_tests {
             .await
             .expect("o corpo deveria ser um multipart válido");
 
-        let storage = storage(config);
+        process_multipart(multipart, config, store).await
+    }
 
-        process_multipart(multipart, config, &storage).await
+    async fn parse(
+        parts: &[(String, Vec<u8>)],
+        config: &AppConfig,
+    ) -> Result<MultipartData, ApiError> {
+        parse_com(parts, config, &storage()).await
+    }
+
+    /// PNG mínimo com a assinatura correta e enchimento até o tamanho pedido.
+    fn png(tamanho: usize) -> Vec<u8> {
+        let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        bytes.resize(tamanho.max(MAGIC_PREFIX_LEN), 0);
+
+        bytes
+    }
+
+    fn jpeg() -> Vec<u8> {
+        let mut bytes = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        bytes.resize(MAGIC_PREFIX_LEN, 0);
+
+        bytes
     }
 
     #[actix_web::test]
@@ -670,5 +694,177 @@ mod multipart_tests {
 
         assert!(data.files.is_empty(), "nada deveria ter subido");
         assert!(data.fields.contains_key("anexo"));
+    }
+
+    // ------------------------------------------------ o que só dá para ver
+    // ------------------------------------------------ com um store de verdade
+
+    #[actix_web::test]
+    async fn an_accepted_image_lands_in_the_store() {
+        let config = config();
+        let store = storage();
+
+        let data = parse_com(
+            &[file_part("images", "foto.png", &png(64))],
+            &config,
+            &store,
+        )
+        .await
+        .expect("um PNG legítimo deveria subir");
+
+        assert_eq!(data.files.len(), 1);
+
+        let chave = &data.files[0].filename;
+
+        assert_eq!(store.chaves(), vec![chave.clone()]);
+        assert!(
+            chave.ends_with(".png"),
+            "a extensão vem do conteúdo: {chave}"
+        );
+        assert_ne!(
+            chave, "foto.png",
+            "o nome do cliente nunca vira nome de objeto"
+        );
+    }
+
+    #[actix_web::test]
+    async fn the_stored_content_type_comes_from_the_bytes_not_the_client() {
+        // O cliente diz .png; o conteúdo é JPEG. Quem manda é o conteúdo —
+        // é o que impede o bucket de servir um arquivo como documento.
+        let config = config();
+        let store = storage();
+
+        let data = parse_com(
+            &[file_part("images", "mentira.png", &jpeg())],
+            &config,
+            &store,
+        )
+        .await
+        .expect("é um JPEG válido");
+
+        let chave = &data.files[0].filename;
+
+        assert!(chave.ends_with(".jpg"), "veio {chave}");
+        assert_eq!(store.content_type(chave), Some("image/jpeg"));
+    }
+
+    #[actix_web::test]
+    async fn refuses_more_images_than_a_registration_may_have() {
+        // Este caminho era intestável antes: só se alcança depois de já ter
+        // subido `max_files_per_request` arquivos.
+        let config = AppConfig {
+            max_files_per_request: 2,
+            ..config()
+        };
+        let store = storage();
+
+        let parts: Vec<_> = (0..3)
+            .map(|i| file_part("images", &format!("foto{i}.png"), &png(64)))
+            .collect();
+
+        let erro = parse_com(&parts, &config, &store)
+            .await
+            .expect_err("passou do teto de imagens");
+
+        assert!(
+            matches!(erro, ApiError::PayloadTooLarge(_)),
+            "veio {erro:?}"
+        );
+        assert!(
+            store.chaves().is_empty(),
+            "as duas que já tinham subido precisam ser apagadas: {:?}",
+            store.chaves()
+        );
+    }
+
+    #[actix_web::test]
+    async fn a_bad_file_after_a_good_one_takes_the_good_one_with_it() {
+        // Envio interrompido no meio não pode deixar objeto órfão no bucket
+        // para sempre.
+        let config = config();
+        let store = storage();
+
+        let erro = parse_com(
+            &[
+                file_part("images", "boa.png", &png(64)),
+                file_part("images", "ruim.png", b"<!doctype html><script>"),
+            ],
+            &config,
+            &store,
+        )
+        .await
+        .expect_err("a segunda não é imagem");
+
+        assert!(
+            matches!(erro, ApiError::FileUploadError(_)),
+            "veio {erro:?}"
+        );
+        assert!(
+            store.chaves().is_empty(),
+            "a primeira ficou para trás: {:?}",
+            store.chaves()
+        );
+    }
+
+    #[actix_web::test]
+    async fn an_oversized_field_after_an_image_cleans_the_image_up() {
+        let config = AppConfig {
+            max_field_size: 32,
+            ..config()
+        };
+        let store = storage();
+
+        let erro = parse_com(
+            &[
+                file_part("images", "boa.png", &png(64)),
+                text_part("about", &"a".repeat(500)),
+            ],
+            &config,
+            &store,
+        )
+        .await
+        .expect_err("o campo passou do teto");
+
+        assert!(
+            matches!(erro, ApiError::PayloadTooLarge(_)),
+            "veio {erro:?}"
+        );
+        assert!(store.chaves().is_empty(), "sobrou {:?}", store.chaves());
+    }
+
+    #[actix_web::test]
+    async fn a_store_that_is_down_does_not_leave_half_a_registration_behind() {
+        let config = config();
+        let store = FakeStore::que_falha();
+
+        let erro = parse_com(
+            &[file_part("images", "foto.png", &png(64))],
+            &config,
+            &store,
+        )
+        .await
+        .expect_err("o store está fora do ar");
+
+        assert!(matches!(erro, ApiError::InternalError(_)), "veio {erro:?}");
+        assert!(store.chaves().is_empty());
+    }
+
+    #[actix_web::test]
+    async fn each_image_gets_its_own_random_key() {
+        let config = config();
+        let store = storage();
+
+        let parts: Vec<_> = (0..3)
+            .map(|i| file_part("images", &format!("foto{i}.png"), &png(64)))
+            .collect();
+
+        let data = parse_com(&parts, &config, &store).await.unwrap();
+
+        let mut chaves = store.chaves();
+        chaves.sort();
+        chaves.dedup();
+
+        assert_eq!(chaves.len(), 3, "duas imagens não podem colidir de chave");
+        assert_eq!(data.files.len(), 3);
     }
 }

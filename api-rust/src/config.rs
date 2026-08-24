@@ -16,15 +16,56 @@ const MIN_JWT_SECRET_LEN: usize = 32;
 
 #[derive(Debug)]
 pub enum ConfigError {
-    Missing(&'static str),
-    Invalid { key: &'static str, reason: String },
+    /// Todas as obrigatórias que faltam, de uma vez.
+    ///
+    /// Vem como lista porque a alternativa é quem está subindo o serviço
+    /// descobrir uma variável por deploy: corrige, sobe de novo, descobre a
+    /// seguinte. Numa primeira instalação isso são cinco rodadas.
+    Missing(Vec<&'static str>),
+    Invalid {
+        key: &'static str,
+        reason: String,
+    },
 }
 
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ConfigError::Missing(key) => write!(f, "variável de ambiente {key} não definida"),
+            ConfigError::Missing(keys) => write!(
+                f,
+                "variáve{} de ambiente não definida{}: {}",
+                if keys.len() == 1 { "l" } else { "is" },
+                if keys.len() == 1 { "" } else { "s" },
+                keys.join(", ")
+            ),
             ConfigError::Invalid { key, reason } => write!(f, "{key} inválida: {reason}"),
+        }
+    }
+}
+
+/// Coletor das variáveis obrigatórias que faltam.
+#[derive(Default)]
+struct Required(Vec<&'static str>);
+
+impl Required {
+    /// Lê uma obrigatória. Ausente, anota o nome e devolve None — a leitura
+    /// continua para que a próxima ausência também seja anotada.
+    fn get(&mut self, key: &'static str) -> Option<String> {
+        match env::var(key) {
+            Ok(value) => Some(value),
+            Err(_) => {
+                self.0.push(key);
+
+                None
+            }
+        }
+    }
+
+    fn into_result(self) -> Result<(), ConfigError> {
+        if self.0.is_empty() {
+            Ok(())
+        } else {
+            Err(ConfigError::Missing(self.0))
         }
     }
 }
@@ -80,9 +121,16 @@ pub struct StorageConfig {
 }
 
 impl StorageConfig {
-    fn from_env() -> Result<Self, ConfigError> {
-        let bucket = env::var("S3_BUCKET").map_err(|_| ConfigError::Missing("S3_BUCKET"))?;
+    fn from_env(required: &mut Required) -> Result<Self, ConfigError> {
+        let bucket = required.get("S3_BUCKET");
+        let access_key = required.get("S3_ACCESS_KEY");
+        let secret_key = required.get("S3_SECRET_KEY");
+
         let endpoint = env::var("S3_ENDPOINT").unwrap_or_default();
+
+        // A base pública deriva do bucket, então sem ele não há o que derivar.
+        // O nome já foi anotado; aqui só se evita inventar um valor.
+        let bucket = bucket.unwrap_or_default();
 
         // Sem base pública explícita, monta a do MinIO local: endpoint/bucket.
         let public_base_url = env::var("S3_PUBLIC_BASE_URL").unwrap_or_else(|_| {
@@ -94,10 +142,8 @@ impl StorageConfig {
         });
 
         Ok(StorageConfig {
-            access_key: env::var("S3_ACCESS_KEY")
-                .map_err(|_| ConfigError::Missing("S3_ACCESS_KEY"))?,
-            secret_key: env::var("S3_SECRET_KEY")
-                .map_err(|_| ConfigError::Missing("S3_SECRET_KEY"))?,
+            access_key: access_key.unwrap_or_default(),
+            secret_key: secret_key.unwrap_or_default(),
             region: env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
             force_path_style: parse_var("S3_FORCE_PATH_STYLE", !endpoint.is_empty())?,
             endpoint,
@@ -121,7 +167,18 @@ fn parse_var<T: std::str::FromStr>(key: &'static str, default: T) -> Result<T, C
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, ConfigError> {
-        let jwt_secret = env::var("JWT_SECRET").map_err(|_| ConfigError::Missing("JWT_SECRET"))?;
+        // Primeiro junta tudo que falta, depois valida o que veio: quem está
+        // subindo o serviço recebe a lista inteira de uma vez.
+        let mut required = Required::default();
+
+        let jwt_secret = required.get("JWT_SECRET");
+        let database_url = required.get("DATABASE_URL");
+        let storage = StorageConfig::from_env(&mut required)?;
+
+        required.into_result()?;
+
+        let jwt_secret = jwt_secret.expect("into_result já teria falhado");
+        let database_url = database_url.expect("into_result já teria falhado");
 
         if jwt_secret.chars().count() < MIN_JWT_SECRET_LEN {
             return Err(ConfigError::Invalid {
@@ -152,8 +209,7 @@ impl AppConfig {
         }
 
         Ok(AppConfig {
-            database_url: env::var("DATABASE_URL")
-                .map_err(|_| ConfigError::Missing("DATABASE_URL"))?,
+            database_url,
             server_host: env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
             server_port: parse_var("SERVER_PORT", 8080u16)?,
             max_file_size: parse_var("MAX_FILE_SIZE", 5 * 1024 * 1024)?,
@@ -161,7 +217,7 @@ impl AppConfig {
             max_field_size: parse_var("MAX_FIELD_SIZE", 16 * 1024)?,
             max_request_size: parse_var("MAX_REQUEST_SIZE", 32 * 1024 * 1024)?,
             base_url: env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string()),
-            storage: StorageConfig::from_env()?,
+            storage,
             jwt_secret,
             jwt_ttl_hours: parse_var("JWT_TTL_HOURS", 8i64)?,
             cors_allowed_origins,
@@ -304,9 +360,9 @@ mod tests {
         }
     }
 
-    fn missing_key(result: Result<AppConfig, ConfigError>) -> &'static str {
+    fn missing_keys(result: Result<AppConfig, ConfigError>) -> Vec<&'static str> {
         match result {
-            Err(ConfigError::Missing(key)) => key,
+            Err(ConfigError::Missing(keys)) => keys,
             other => panic!("esperava ConfigError::Missing, veio {other:?}"),
         }
     }
@@ -323,29 +379,69 @@ mod tests {
 
     #[test]
     fn refuses_to_start_without_the_required_variables() {
+        for chave in [
+            "JWT_SECRET",
+            "DATABASE_URL",
+            "S3_BUCKET",
+            "S3_ACCESS_KEY",
+            "S3_SECRET_KEY",
+        ] {
+            let sem_ela: Vec<_> = minimal()
+                .into_iter()
+                .filter(|(key, _)| *key != chave)
+                .collect();
+
+            assert_eq!(
+                missing_keys(with_env(&sem_ela, AppConfig::from_env)),
+                vec![chave],
+                "faltando {chave}"
+            );
+        }
+    }
+
+    #[test]
+    fn reports_every_missing_variable_at_once() {
+        // Uma por vez significa quem instala descobrir uma variável por
+        // deploy: corrige, sobe de novo, descobre a seguinte.
+        let faltando = missing_keys(with_env(&[], AppConfig::from_env));
+
         assert_eq!(
-            missing_key(with_env(&[], AppConfig::from_env)),
-            "JWT_SECRET"
+            faltando,
+            vec![
+                "JWT_SECRET",
+                "DATABASE_URL",
+                "S3_BUCKET",
+                "S3_ACCESS_KEY",
+                "S3_SECRET_KEY",
+            ]
         );
+    }
 
-        let sem_banco: Vec<_> = minimal()
-            .into_iter()
-            .filter(|(key, _)| *key != "DATABASE_URL")
-            .collect();
+    #[test]
+    fn the_missing_message_names_all_of_them() {
+        let erro = with_env(&[], AppConfig::from_env).unwrap_err();
+        let mensagem = erro.to_string();
 
-        assert_eq!(
-            missing_key(with_env(&sem_banco, AppConfig::from_env)),
-            "DATABASE_URL"
-        );
+        for chave in ["JWT_SECRET", "DATABASE_URL", "S3_BUCKET"] {
+            assert!(
+                mensagem.contains(chave),
+                "{chave} ficou de fora: {mensagem}"
+            );
+        }
+    }
 
+    #[test]
+    fn a_missing_variable_never_becomes_an_empty_default() {
+        // O coletor segue lendo depois de anotar uma ausência, e o risco disso
+        // é um valor vazio escapar como se fosse configuração válida.
         let sem_bucket: Vec<_> = minimal()
             .into_iter()
             .filter(|(key, _)| *key != "S3_BUCKET")
             .collect();
 
-        assert_eq!(
-            missing_key(with_env(&sem_bucket, AppConfig::from_env)),
-            "S3_BUCKET"
+        assert!(
+            with_env(&sem_bucket, AppConfig::from_env).is_err(),
+            "bucket vazio não pode virar configuração aceita"
         );
     }
 

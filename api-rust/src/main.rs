@@ -1,13 +1,12 @@
-use std::time::Duration;
+use std::sync::Arc;
 
-use actix_web::{middleware, web, App, HttpServer};
+use actix_web::{middleware, HttpServer};
 
-use api_rust::bootstrap::{seed_first_admin, AdminSeed};
-use api_rust::handlers::upload::payload_config;
+use api_rust::app::{build_app, Limiters};
+use api_rust::domains::admins::actions::{seed_first, AdminSeed};
 use api_rust::migrations;
-use api_rust::rate_limit::{LoginRateLimiter, SubmissionRateLimiter};
-use api_rust::storage::Storage;
-use api_rust::{config::AppConfig, db::establish_connection_pool, http};
+use api_rust::storage::{SharedStore, Storage};
+use api_rust::{config::AppConfig, db::establish_connection_pool};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -65,7 +64,7 @@ async fn main() -> std::io::Result<()> {
             .get()
             .expect("não consegui pegar conexão para verificar os moderadores");
 
-        if let Err(e) = seed_first_admin(&mut conn, AdminSeed::from_env()) {
+        if let Err(e) = seed_first(&mut conn, AdminSeed::from_env()) {
             log::error!("{e}");
             std::process::exit(1);
         }
@@ -77,32 +76,15 @@ async fn main() -> std::io::Result<()> {
 
     // Um cliente só, compartilhado pelos workers: ele mantém pool de conexões
     // por dentro, e criar um por worker desperdiçaria isso.
-    let storage = web::Data::new(Storage::new(&config.storage));
+    let storage: SharedStore = Arc::new(Storage::new(&config.storage));
 
-    let rate_window = Duration::from_secs(config.rate_limit_window_secs);
-    // Fora do closure: cada worker do actix roda o closure uma vez, e um
-    // limitador por worker contaria cada IP N vezes antes de barrar.
-    let login_limiter = web::Data::new(LoginRateLimiter::new(config.login_rate_limit, rate_window));
-    let submission_limiter = web::Data::new(SubmissionRateLimiter::new(
-        config.submission_rate_limit,
-        rate_window,
-    ));
+    let limiters = Limiters::from_config(&config);
 
+    // O Logger é montado aqui, e não dentro do build_app: mantém a assinatura
+    // do build_app com um tipo de corpo só, e deixa os testes sem access log.
     HttpServer::new(move || {
-        App::new()
-            .app_data(web::Data::new(pool.clone()))
-            .app_data(web::Data::new(config.clone()))
-            .app_data(storage.clone())
-            .app_data(login_limiter.clone())
-            .app_data(submission_limiter.clone())
-            .app_data(payload_config(&config))
-            // Corpo JSON pequeno: as rotas que recebem JSON só levam login e
-            // motivo de rejeição.
-            .app_data(web::JsonConfig::default().limit(16 * 1024))
-            .wrap(http::cors(&config))
-            .wrap(http::security_headers())
+        build_app(pool.clone(), storage.clone(), config.clone(), &limiters)
             .wrap(middleware::Logger::default())
-            .configure(http::routes)
     })
     .bind((server_host.as_str(), server_port))?
     .run()

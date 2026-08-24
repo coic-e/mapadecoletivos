@@ -1,18 +1,16 @@
 /// HTTP routes for organizations domain
 use actix_multipart::Multipart;
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{get, patch, post, web, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use validator::Validate;
 
-use crate::auth::AdminIdentity;
+use super::auth::SeeEveryStatus;
 use crate::config::AppConfig;
 use crate::db::DbPool;
-use crate::domains::edit_requests::repository::EditRequestRepository;
-use crate::domains::organizations::repository::OrganizationRepository;
 use crate::errors::ApiError;
 use crate::handlers::upload::{parse_bigdecimal, process_multipart};
 use crate::rate_limit::{client_key, SubmissionRateLimiter};
-use crate::storage::Storage;
+use crate::storage::SharedStore;
 use api_types::OrganizationView;
 use db_types::edit_request::OrganizationChanges;
 use db_types::organization::{slugify, ModerationStatus, NewOrganization};
@@ -54,36 +52,26 @@ pub struct RejectPayload {
     pub reason: Option<String>,
 }
 
-/// Configure routes for organizations domain
+/// O caminho de cada handler vem do atributo em cima dele, não de um escopo
+/// montado aqui: quem lê o handler vê a rota que ele atende.
+///
+/// As de moderação pedem `AdminIdentity`, então sem Bearer token válido a
+/// requisição morre em 401 antes de tocar no banco.
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/organizations")
-            .route("", web::post().to(create))
-            .route("", web::get().to(index))
-            .route("/{id}", web::get().to(show))
-            // Pedido público de correção. Fica aqui, e não no módulo de
-            // edit_requests, porque este escopo já é dono de /organizations.
-            .route(
-                "/{id_or_slug}/edit-requests",
-                web::post().to(crate::domains::edit_requests::routes::create),
-            ),
-    );
-
-    // Rotas de moderação. Todo handler aqui pede AdminIdentity, então sem
-    // Bearer token válido a requisição morre em 401 antes de tocar no banco.
-    cfg.service(
-        web::scope("/admin/organizations")
-            .route("", web::get().to(moderation_index))
-            .route("/{id}", web::get().to(moderation_show))
-            .route("/{id}", web::patch().to(update))
-            .route("/{id}/approve", web::post().to(approve))
-            .route("/{id}/reject", web::post().to(reject)),
-    );
+    cfg.service(create)
+        .service(index)
+        .service(show)
+        .service(moderation_index)
+        .service(moderation_show)
+        .service(update)
+        .service(approve)
+        .service(reject);
 }
 
-/// GET /admin/organizations?status=pending — a fila de revisão.
+/// A fila de revisão.
+#[get("/admin/organizations")]
 pub async fn moderation_index(
-    _identity: AdminIdentity,
+    w: SeeEveryStatus,
     query: web::Query<ModerationQuery>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
@@ -118,7 +106,7 @@ pub async fn moderation_index(
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
     let organizations_with_images = web::block(move || {
-        actions::get_organizations_for_moderation(&mut conn, status, limit, offset)
+        actions::get_organizations_for_moderation(&mut conn, w, status, limit, offset)
     })
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;
@@ -129,9 +117,10 @@ pub async fn moderation_index(
     Ok(HttpResponse::Ok().json(views))
 }
 
-/// GET /admin/organizations/{id} — enxerga qualquer estado, não só aprovado.
+/// Enxerga qualquer estado, não só aprovado.
+#[get("/admin/organizations/{id}")]
 pub async fn moderation_show(
-    _identity: AdminIdentity,
+    w: SeeEveryStatus,
     path: web::Path<i32>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
@@ -142,26 +131,21 @@ pub async fn moderation_show(
         .get()
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
-    let (organization, images) = web::block(move || {
-        crate::domains::organizations::repository::OrganizationRepository::find_by_id(
-            &mut conn,
-            organization_id,
-        )
-    })
-    .await
-    .map_err(|e| ApiError::InternalError(e.to_string()))??;
+    let (organization, images) =
+        web::block(move || actions::get_organization_for_moderation(&mut conn, w, organization_id))
+            .await
+            .map_err(|e| ApiError::InternalError(e.to_string()))??;
 
     let view = OrganizationView::render(&organization, &images, &config.storage.public_base_url);
 
     Ok(HttpResponse::Ok().json(view))
 }
 
-/// PATCH /admin/organizations/{id} — edição direta pelo moderador.
-///
-/// Campo ausente fica como está. Não devolve o cadastro para a fila: quem
-/// editou aqui é a própria moderação.
+/// Edição direta pelo moderador. Campo ausente fica como está, e o cadastro
+/// não volta para a fila: quem editou aqui é a própria moderação.
+#[patch("/admin/organizations/{id}")]
 pub async fn update(
-    _identity: AdminIdentity,
+    w: SeeEveryStatus,
     path: web::Path<i32>,
     payload: web::Json<OrganizationChanges>,
     pool: web::Data<DbPool>,
@@ -170,35 +154,12 @@ pub async fn update(
     let organization_id = path.into_inner();
     let changes = payload.into_inner();
 
-    if changes.is_empty() {
-        return Err(ApiError::ValidationError(
-            vec![(
-                "changes".to_string(),
-                vec!["Informe ao menos um campo para alterar".to_string()],
-            )]
-            .into_iter()
-            .collect(),
-        ));
-    }
-
-    changes.validate().map_err(ApiError::from)?;
-
-    if let Err(reason) = changes.validate_closed_lists() {
-        return Err(ApiError::ValidationError(
-            vec![("changes".to_string(), vec![reason])]
-                .into_iter()
-                .collect(),
-        ));
-    }
-
     let mut conn = pool
         .get()
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
     let (organization, images) = web::block(move || {
-        EditRequestRepository::apply_changes(&mut conn, organization_id, &changes)?;
-
-        OrganizationRepository::find_by_id(&mut conn, organization_id)
+        actions::apply_moderator_changes(&mut conn, w, organization_id, &changes)
     })
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;
@@ -208,16 +169,17 @@ pub async fn update(
     Ok(HttpResponse::Ok().json(view))
 }
 
-/// POST /admin/organizations/{id}/approve — passa a aparecer no mapa.
+/// Passa a aparecer no mapa.
+#[post("/admin/organizations/{id}/approve")]
 pub async fn approve(
-    identity: AdminIdentity,
+    w: SeeEveryStatus,
     path: web::Path<i32>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
-    storage: web::Data<Storage>,
+    storage: web::Data<SharedStore>,
 ) -> Result<HttpResponse, ApiError> {
     review(
-        identity,
+        w,
         path,
         pool,
         config,
@@ -228,14 +190,15 @@ pub async fn approve(
     .await
 }
 
-/// POST /admin/organizations/{id}/reject — sai do mapa, com motivo opcional.
+/// Sai do mapa, com motivo opcional.
+#[post("/admin/organizations/{id}/reject")]
 pub async fn reject(
-    identity: AdminIdentity,
+    w: SeeEveryStatus,
     path: web::Path<i32>,
     payload: Option<web::Json<RejectPayload>>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
-    storage: web::Data<Storage>,
+    storage: web::Data<SharedStore>,
 ) -> Result<HttpResponse, ApiError> {
     let reason = payload
         .and_then(|body| body.reason.clone())
@@ -243,7 +206,7 @@ pub async fn reject(
         .filter(|value| !value.is_empty());
 
     review(
-        identity,
+        w,
         path,
         pool,
         config,
@@ -255,11 +218,11 @@ pub async fn reject(
 }
 
 async fn review(
-    identity: AdminIdentity,
+    w: SeeEveryStatus,
     path: web::Path<i32>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
-    storage: web::Data<Storage>,
+    storage: web::Data<SharedStore>,
     status: &'static str,
     rejection_reason: Option<String>,
 ) -> Result<HttpResponse, ApiError> {
@@ -270,13 +233,7 @@ async fn review(
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
     let (organization, images, descartadas) = web::block(move || {
-        actions::review_organization(
-            &mut conn,
-            organization_id,
-            status,
-            identity.id,
-            rejection_reason,
-        )
+        actions::review_organization(&mut conn, w, organization_id, status, rejection_reason)
     })
     .await
     .map_err(|e| ApiError::InternalError(e.to_string()))??;
@@ -296,14 +253,15 @@ async fn review(
     Ok(HttpResponse::Ok().json(view))
 }
 
-/// POST /organizations - Create a new organization
+/// Cadastro novo, aberto ao público. Entra pendente.
+#[post("/organizations")]
 pub async fn create(
     req: HttpRequest,
     payload: Multipart,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
     limiter: web::Data<SubmissionRateLimiter>,
-    storage: web::Data<Storage>,
+    storage: web::Data<SharedStore>,
 ) -> Result<HttpResponse, ApiError> {
     // O cadastro é aberto e grava imagem no bucket: sem limite por IP, um
     // script enche o bucket e a fila de moderação em minutos. Conferido antes
@@ -311,7 +269,7 @@ pub async fn create(
     limiter.check(&format!("submit:{}", client_key(&req, &config)))?;
 
     // Extract multipart data (files + text fields)
-    let multipart_data = process_multipart(payload, &config, &storage).await?;
+    let multipart_data = process_multipart(payload, &config, storage.as_ref().as_ref()).await?;
 
     // Helper to get required field
     let get_field = |name: &str| -> Result<String, ApiError> {
@@ -472,10 +430,11 @@ pub async fn create(
     Ok(HttpResponse::Created().json(view))
 }
 
-/// GET /organizations/{id_ou_slug} - Um cadastro, por id ou por slug
+/// Um cadastro, por id ou por slug.
 ///
 /// Aceita os dois porque o site passou a usar slug, mas links antigos com id
 /// continuam existindo por aí. Numérico é id; o resto é slug.
+#[get("/organizations/{id_or_slug}")]
 pub async fn show(
     path: web::Path<String>,
     pool: web::Data<DbPool>,
@@ -499,7 +458,8 @@ pub async fn show(
     Ok(HttpResponse::Ok().json(view))
 }
 
-/// GET /organizations - Get all organizations with pagination
+/// A listagem do mapa, paginada. Só aprovados.
+#[get("/organizations")]
 pub async fn index(
     query: web::Query<PaginationQuery>,
     pool: web::Data<DbPool>,

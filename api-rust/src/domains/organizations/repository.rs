@@ -2,6 +2,7 @@ use chrono::Utc;
 use diesel::prelude::*;
 
 use crate::db::DbConnection;
+use crate::domains::organizations::auth::SeeEveryStatus;
 use crate::errors::ApiError;
 use db_types::image::{Image, NewImage};
 use db_types::organization::{ModerationStatus, NewOrganization, Organization};
@@ -83,11 +84,28 @@ impl OrganizationRepository {
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> Result<Vec<(Organization, Vec<Image>)>, ApiError> {
-        Self::find_all_with_status(conn, Some(ModerationStatus::APPROVED), limit, offset)
+        // O filtro é fixo aqui, não um argumento: é o que faz esta função ser
+        // segura para o público sem precisar de witness.
+        Self::query_by_status(conn, Some(ModerationStatus::APPROVED), limit, offset)
     }
 
     /// Listagem da moderação. `status` em None traz tudo, de qualquer estado.
+    ///
+    /// Exige o witness porque enxerga pendente e rejeitado. A listagem pública
+    /// chega aqui por `find_all_approved`, que fixa o filtro.
     pub fn find_all_with_status(
+        conn: &mut DbConnection,
+        _w: SeeEveryStatus,
+        status: Option<&str>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Vec<(Organization, Vec<Image>)>, ApiError> {
+        Self::query_by_status(conn, status, limit, offset)
+    }
+
+    /// O corpo compartilhado. Privado de propósito: quem entra aqui já decidiu
+    /// se filtra por status ou não, e essa decisão é o ponto de controle.
+    fn query_by_status(
         conn: &mut DbConnection,
         status: Option<&str>,
         limit: Option<i64>,
@@ -126,9 +144,10 @@ impl OrganizationRepository {
         Ok(organizations_list.into_iter().zip(images_list).collect())
     }
 
-    /// Busca da moderação: enxerga qualquer estado.
+    /// Busca da moderação: enxerga qualquer estado, e por isso exige o witness.
     pub fn find_by_id(
         conn: &mut DbConnection,
+        _w: SeeEveryStatus,
         organization_id: i32,
     ) -> Result<(Organization, Vec<Image>), ApiError> {
         let organization = organizations::table

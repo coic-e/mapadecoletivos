@@ -1,5 +1,10 @@
 //! Sinais de saúde da API.
 //!
+//! Fica solto aqui, e não em `domains/`, porque não é domínio: não tem regra de
+//! negócio para orquestrar nem autorização para decidir. São duas sondas que
+//! chamam uma dependência e relatam. Uma camada de action aqui só acrescentaria
+//! um arquivo que repassa a chamada.
+//!
 //! São dois, de propósito, porque respondem perguntas diferentes:
 //!
 //! - `/health` diz que o processo está de pé. Não toca em banco nem bucket, e
@@ -9,34 +14,35 @@
 //!   balanceador deve consultar para decidir se manda tráfego.
 use std::time::Duration;
 
-use actix_web::{web, HttpResponse};
+use actix_web::{get, web, HttpResponse};
 use diesel::prelude::*;
 use diesel::sql_query;
 
 use crate::db::DbPool;
-use crate::storage::Storage;
+use crate::storage::{ImageStore, SharedStore};
 
 /// Teto para cada verificação. Sem isso, dependência travada deixa a sonda
 /// pendurada e o orquestrador interpreta como "sem resposta" muito depois.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.route("/health", web::get().to(live))
-        .route("/health/ready", web::get().to(ready));
+    cfg.service(live).service(ready);
 }
 
-/// GET /health — o processo responde.
+/// O processo responde.
+#[get("/health")]
 pub async fn live() -> HttpResponse {
     HttpResponse::Ok().json(serde_json::json!({ "status": "ok" }))
 }
 
-/// GET /health/ready — banco e bucket alcançáveis.
+/// Banco e bucket alcançáveis.
 ///
 /// Responde 503 quando alguma dependência falha, com o detalhe de qual: sonda
 /// que só diz "não" obriga quem está de plantão a adivinhar.
-pub async fn ready(pool: web::Data<DbPool>, storage: web::Data<Storage>) -> HttpResponse {
+#[get("/health/ready")]
+pub async fn ready(pool: web::Data<DbPool>, storage: web::Data<SharedStore>) -> HttpResponse {
     let database = check_database(&pool).await;
-    let bucket = check_storage(&storage).await;
+    let bucket = check_storage(storage.as_ref().as_ref()).await;
 
     let healthy = database.is_ok() && bucket.is_ok();
 
@@ -79,7 +85,7 @@ async fn check_database(pool: &DbPool) -> Result<(), String> {
     }
 }
 
-async fn check_storage(storage: &Storage) -> Result<(), String> {
+async fn check_storage(storage: &dyn ImageStore) -> Result<(), String> {
     match tokio::time::timeout(CHECK_TIMEOUT, storage.check()).await {
         Ok(resultado) => resultado.map_err(|e| e.to_string()),
         Err(_) => Err("tempo esgotado".to_string()),

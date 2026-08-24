@@ -3,6 +3,7 @@
 use diesel::Connection;
 
 use crate::db::DbConnection;
+use crate::domains::organizations::auth::SeeEveryStatus;
 use crate::errors::ApiError;
 use db_types::image::NewImage;
 use db_types::organization::{ModerationStatus, NewOrganization, Organization};
@@ -84,19 +85,50 @@ pub fn get_all_organizations(
 /// Fila de moderação. `status` em None traz todos os estados.
 pub fn get_organizations_for_moderation(
     conn: &mut DbConnection,
+    w: SeeEveryStatus,
     status: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<(Organization, Vec<db_types::image::Image>)>, ApiError> {
-    OrganizationRepository::find_all_with_status(conn, status.as_deref(), limit, offset)
+    OrganizationRepository::find_all_with_status(conn, w, status.as_deref(), limit, offset)
+}
+
+/// Um cadastro como a moderação o vê: qualquer estado.
+pub fn get_organization_for_moderation(
+    conn: &mut DbConnection,
+    w: SeeEveryStatus,
+    id: i32,
+) -> Result<(Organization, Vec<db_types::image::Image>), ApiError> {
+    OrganizationRepository::find_by_id(conn, w, id)
+}
+
+/// Edição direta pelo moderador.
+///
+/// Campo ausente fica como está. Não devolve o cadastro para a fila: quem
+/// editou aqui é a própria moderação.
+pub fn apply_moderator_changes(
+    conn: &mut DbConnection,
+    w: SeeEveryStatus,
+    id: i32,
+    changes: &db_types::edit_request::OrganizationChanges,
+) -> Result<(Organization, Vec<db_types::image::Image>), ApiError> {
+    // Mesmas regras do pedido de correção: é o mesmo tipo de mudança, e o que
+    // um caminho recusa o outro não pode aceitar.
+    crate::domains::edit_requests::actions::validate_changes(changes)?;
+
+    crate::domains::edit_requests::repository::EditRequestRepository::apply_changes(
+        conn, id, changes,
+    )?;
+
+    OrganizationRepository::find_by_id(conn, w, id)
 }
 
 /// Aprova ou rejeita um cadastro, registrando quem decidiu.
 pub fn review_organization(
     conn: &mut DbConnection,
+    w: SeeEveryStatus,
     id: i32,
     status: &str,
-    reviewed_by: i32,
     rejection_reason: Option<String>,
 ) -> Result<(Organization, Vec<db_types::image::Image>, Vec<String>), ApiError> {
     if !ModerationStatus::is_valid(status) {
@@ -113,9 +145,11 @@ pub fn review_organization(
     conn.transaction::<_, ApiError, _>(|conn| {
         // Confere que existe antes de atualizar, para responder 404 em vez de
         // um erro genérico de banco.
-        OrganizationRepository::find_by_id(conn, id)?;
+        OrganizationRepository::find_by_id(conn, w, id)?;
 
-        OrganizationRepository::set_status(conn, id, status, reviewed_by, rejection_reason)?;
+        // Quem decidiu sai do próprio witness: não há como gravar a decisão
+        // em nome de outro moderador sem forjar a prova, que é privada.
+        OrganizationRepository::set_status(conn, id, status, w.admin_id(), rejection_reason)?;
 
         // Cadastro rejeitado não volta ao site, então guardar as fotos só
         // acumula custo: um envio automatizado pode empurrar dezenas de
@@ -126,7 +160,7 @@ pub fn review_organization(
             Vec::new()
         };
 
-        let (organization, images) = OrganizationRepository::find_by_id(conn, id)?;
+        let (organization, images) = OrganizationRepository::find_by_id(conn, w, id)?;
 
         Ok((organization, images, descartadas))
     })

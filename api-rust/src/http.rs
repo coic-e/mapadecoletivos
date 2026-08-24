@@ -11,6 +11,7 @@ use actix_web::web;
 
 use crate::config::AppConfig;
 use crate::domains;
+use crate::ops;
 
 /// Origens autorizadas a chamar a API pelo navegador.
 ///
@@ -53,5 +54,5 @@ pub fn routes(cfg: &mut web::ServiceConfig) {
     cfg.configure(domains::organizations::configure)
         .configure(domains::admins::configure)
         .configure(domains::edit_requests::configure)
-        .configure(domains::health::configure);
+        .configure(ops::configure);
 }

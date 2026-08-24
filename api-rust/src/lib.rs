@@ -1,5 +1,5 @@
+pub mod app;
 pub mod auth;
-pub mod bootstrap;
 pub mod config;
 pub mod db;
 pub mod domains;
@@ -7,5 +7,6 @@ pub mod errors;
 pub mod handlers;
 pub mod http;
 pub mod migrations;
+pub mod ops;
 pub mod rate_limit;
 pub mod storage;

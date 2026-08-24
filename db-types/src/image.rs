@@ -1,10 +1,12 @@
 use diesel::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::organization::Organization;
 use crate::schema::images;
 
-#[derive(Debug, Clone, Queryable, Identifiable, Associations, Serialize, Deserialize)]
+/// Sem `Serialize`: o banco guarda a chave do objeto, e o que o navegador
+/// precisa é a URL montada — trabalho de `ImageView`.
+#[derive(Debug, Clone, Queryable, Identifiable, Associations)]
 #[diesel(belongs_to(Organization, foreign_key = organization_id))]
 #[diesel(table_name = images)]
 pub struct Image {

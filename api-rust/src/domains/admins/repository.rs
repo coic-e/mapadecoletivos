@@ -25,6 +25,14 @@ impl AdminRepository {
             .map_err(ApiError::from)
     }
 
+    /// Quantos moderadores existem. A semente do primeiro depende disto.
+    pub fn count(conn: &mut DbConnection) -> Result<i64, ApiError> {
+        admins::table
+            .count()
+            .get_result(conn)
+            .map_err(ApiError::from)
+    }
+
     pub fn create(conn: &mut DbConnection, new_admin: &NewAdmin) -> Result<Admin, ApiError> {
         diesel::insert_into(admins::table)
             .values(new_admin)
