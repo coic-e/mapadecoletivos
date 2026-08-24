@@ -2,6 +2,7 @@
 
 Monorepo do Mapa de Rave: um mapa aberto da cena de música eletrônica brasileira — coletivos, festas, labels, clubs, rádios e produtoras.
 
+
 ## Estrutura
 
 ```
