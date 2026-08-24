@@ -14,7 +14,7 @@
 //!   balanceador deve consultar para decidir se manda tráfego.
 use std::time::Duration;
 
-use actix_web::{web, HttpResponse};
+use actix_web::{get, web, HttpResponse};
 use diesel::prelude::*;
 use diesel::sql_query;
 
@@ -26,19 +26,20 @@ use crate::storage::{ImageStore, SharedStore};
 const CHECK_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.route("/health", web::get().to(live))
-        .route("/health/ready", web::get().to(ready));
+    cfg.service(live).service(ready);
 }
 
-/// GET /health — o processo responde.
+/// O processo responde.
+#[get("/health")]
 pub async fn live() -> HttpResponse {
     HttpResponse::Ok().json(serde_json::json!({ "status": "ok" }))
 }
 
-/// GET /health/ready — banco e bucket alcançáveis.
+/// Banco e bucket alcançáveis.
 ///
 /// Responde 503 quando alguma dependência falha, com o detalhe de qual: sonda
 /// que só diz "não" obriga quem está de plantão a adivinhar.
+#[get("/health/ready")]
 pub async fn ready(pool: web::Data<DbPool>, storage: web::Data<SharedStore>) -> HttpResponse {
     let database = check_database(&pool).await;
     let bucket = check_storage(storage.as_ref().as_ref()).await;

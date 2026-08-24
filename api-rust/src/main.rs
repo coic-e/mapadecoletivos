@@ -3,7 +3,7 @@ use std::sync::Arc;
 use actix_web::{middleware, HttpServer};
 
 use api_rust::app::{build_app, Limiters};
-use api_rust::bootstrap::{seed_first_admin, AdminSeed};
+use api_rust::domains::admins::actions::{seed_first, AdminSeed};
 use api_rust::migrations;
 use api_rust::storage::{SharedStore, Storage};
 use api_rust::{config::AppConfig, db::establish_connection_pool};
@@ -64,7 +64,7 @@ async fn main() -> std::io::Result<()> {
             .get()
             .expect("não consegui pegar conexão para verificar os moderadores");
 
-        if let Err(e) = seed_first_admin(&mut conn, AdminSeed::from_env()) {
+        if let Err(e) = seed_first(&mut conn, AdminSeed::from_env()) {
             log::error!("{e}");
             std::process::exit(1);
         }

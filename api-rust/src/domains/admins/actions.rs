@@ -143,7 +143,8 @@ pub fn seed_first(conn: &mut DbConnection, seed: Option<AdminSeed>) -> Result<()
         (0, Some(seed)) => {
             // Mesmo piso do binário, porque é a mesma função — não uma cópia
             // que envelhece sozinha.
-            check_password_strength(&seed.password).map_err(|motivo| format!("ADMIN_PASSWORD: {motivo}"))?;
+            check_password_strength(&seed.password)
+                .map_err(|motivo| format!("ADMIN_PASSWORD: {motivo}"))?;
 
             let admin = create(conn, &seed.name, &seed.email, &seed.password)
                 .map_err(|e| format!("falha ao criar o primeiro moderador: {e}"))?;
@@ -222,7 +223,10 @@ mod tests {
         // que o binário recusava, e o comentário dela dizia o contrário.
         assert!(check_password_strength("123456789012").is_err());
         assert!(check_password_strength("adminadmin").is_err());
-        assert!(check_password_strength("ADMINADMIN").is_err(), "caixa não salva");
+        assert!(
+            check_password_strength("ADMINADMIN").is_err(),
+            "caixa não salva"
+        );
         assert!(check_password_strength("curta").is_err());
 
         assert!(check_password_strength("uma-senha-que-presta").is_ok());
@@ -238,8 +242,14 @@ mod tests {
     fn the_length_is_counted_in_characters_not_bytes() {
         // "senhaçãoçãoç" tem 12 caracteres e mais de 12 bytes. Contar bytes
         // deixaria passar uma senha mais curta do que o piso.
-        assert!(check_password_strength("çãoçãoçãoçã").is_err(), "11 caracteres");
-        assert!(check_password_strength("çãoçãoçãoção").is_ok(), "12 caracteres");
+        assert!(
+            check_password_strength("çãoçãoçãoçã").is_err(),
+            "11 caracteres"
+        );
+        assert!(
+            check_password_strength("çãoçãoçãoção").is_ok(),
+            "12 caracteres"
+        );
     }
 
     #[test]

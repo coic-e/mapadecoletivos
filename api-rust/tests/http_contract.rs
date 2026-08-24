@@ -72,6 +72,8 @@ fn request(method: &str, uri: &str) -> test::TestRequest {
         "GET" => test::TestRequest::get(),
         "POST" => test::TestRequest::post(),
         "PATCH" => test::TestRequest::patch(),
+        "PUT" => test::TestRequest::put(),
+        "DELETE" => test::TestRequest::delete(),
         outro => panic!("método não previsto no teste: {outro}"),
     }
     .uri(uri)
@@ -395,6 +397,77 @@ async fn an_unknown_route_is_a_404_not_a_crash() {
             resp.status(),
             StatusCode::NOT_FOUND,
             "{uri} deveria ser 404"
+        );
+    }
+}
+
+/// Todo caminho que a API atende, com o método que o atende.
+///
+/// A lista existe porque o caminho de cada handler vive num atributo em cima
+/// dele: um erro de digitação ali não quebra a compilação, só faz a rota sumir
+/// — e o front recebe 404 numa tela que funcionava.
+const EVERY_ROUTE: &[(&str, &str)] = &[
+    ("GET", "/health"),
+    ("GET", "/health/ready"),
+    ("POST", "/auth/login"),
+    ("GET", "/auth/me"),
+    ("GET", "/organizations"),
+    ("POST", "/organizations"),
+    ("GET", "/organizations/bunker-034"),
+    ("POST", "/organizations/bunker-034/edit-requests"),
+    ("GET", "/admin/organizations"),
+    ("GET", "/admin/organizations/1"),
+    ("PATCH", "/admin/organizations/1"),
+    ("POST", "/admin/organizations/1/approve"),
+    ("POST", "/admin/organizations/1/reject"),
+    ("GET", "/admin/edit-requests"),
+    ("POST", "/admin/edit-requests/1/apply"),
+    ("POST", "/admin/edit-requests/1/reject"),
+];
+
+#[actix_web::test]
+async fn every_route_is_registered_at_the_path_it_advertises() {
+    // 404 aqui significa "não existe rota nesse caminho". Qualquer outra
+    // resposta — 401 por falta de token, 400 por corpo inválido, 500 porque o
+    // pool deste arquivo não conecta — prova que o caminho casou.
+    let app = app!();
+
+    for (method, uri) in EVERY_ROUTE {
+        let resp = test::call_service(&app, request(method, uri).to_request()).await;
+
+        assert_ne!(
+            resp.status(),
+            StatusCode::NOT_FOUND,
+            "{method} {uri} não está registrado"
+        );
+    }
+}
+
+#[actix_web::test]
+async fn a_route_answers_only_the_method_it_advertises() {
+    // Sem isto, trocar #[post] por #[get] num handler passaria: o caminho
+    // continua registrado, e o teste acima seguiria verde.
+    let app = app!();
+
+    let trocas = [
+        ("GET", "/auth/login"),
+        ("POST", "/auth/me"),
+        ("GET", "/admin/organizations/1/approve"),
+        ("GET", "/admin/edit-requests/1/apply"),
+        ("POST", "/admin/organizations/1"),
+        ("PATCH", "/organizations"),
+    ];
+
+    for (method, uri) in trocas {
+        let resp = test::call_service(&app, request(method, uri).to_request()).await;
+
+        assert!(
+            matches!(
+                resp.status(),
+                StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
+            ),
+            "{method} {uri} deveria ser recusado, veio {}",
+            resp.status()
         );
     }
 }

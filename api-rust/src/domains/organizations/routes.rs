@@ -1,6 +1,6 @@
 /// HTTP routes for organizations domain
 use actix_multipart::Multipart;
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{get, patch, post, web, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use validator::Validate;
 
@@ -52,34 +52,24 @@ pub struct RejectPayload {
     pub reason: Option<String>,
 }
 
-/// Configure routes for organizations domain
+/// O caminho de cada handler vem do atributo em cima dele, não de um escopo
+/// montado aqui: quem lê o handler vê a rota que ele atende.
+///
+/// As de moderação pedem `AdminIdentity`, então sem Bearer token válido a
+/// requisição morre em 401 antes de tocar no banco.
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/organizations")
-            .route("", web::post().to(create))
-            .route("", web::get().to(index))
-            .route("/{id}", web::get().to(show))
-            // Pedido público de correção. Fica aqui, e não no módulo de
-            // edit_requests, porque este escopo já é dono de /organizations.
-            .route(
-                "/{id_or_slug}/edit-requests",
-                web::post().to(crate::domains::edit_requests::routes::create),
-            ),
-    );
-
-    // Rotas de moderação. Todo handler aqui pede AdminIdentity, então sem
-    // Bearer token válido a requisição morre em 401 antes de tocar no banco.
-    cfg.service(
-        web::scope("/admin/organizations")
-            .route("", web::get().to(moderation_index))
-            .route("/{id}", web::get().to(moderation_show))
-            .route("/{id}", web::patch().to(update))
-            .route("/{id}/approve", web::post().to(approve))
-            .route("/{id}/reject", web::post().to(reject)),
-    );
+    cfg.service(create)
+        .service(index)
+        .service(show)
+        .service(moderation_index)
+        .service(moderation_show)
+        .service(update)
+        .service(approve)
+        .service(reject);
 }
 
-/// GET /admin/organizations?status=pending — a fila de revisão.
+/// A fila de revisão.
+#[get("/admin/organizations")]
 pub async fn moderation_index(
     identity: AdminIdentity,
     query: web::Query<ModerationQuery>,
@@ -129,7 +119,8 @@ pub async fn moderation_index(
     Ok(HttpResponse::Ok().json(views))
 }
 
-/// GET /admin/organizations/{id} — enxerga qualquer estado, não só aprovado.
+/// Enxerga qualquer estado, não só aprovado.
+#[get("/admin/organizations/{id}")]
 pub async fn moderation_show(
     identity: AdminIdentity,
     path: web::Path<i32>,
@@ -154,7 +145,9 @@ pub async fn moderation_show(
     Ok(HttpResponse::Ok().json(view))
 }
 
-/// PATCH /admin/organizations/{id} — edição direta pelo moderador.
+/// Edição direta pelo moderador. Campo ausente fica como está, e o cadastro
+/// não volta para a fila: quem editou aqui é a própria moderação.
+#[patch("/admin/organizations/{id}")]
 pub async fn update(
     identity: AdminIdentity,
     path: web::Path<i32>,
@@ -181,7 +174,8 @@ pub async fn update(
     Ok(HttpResponse::Ok().json(view))
 }
 
-/// POST /admin/organizations/{id}/approve — passa a aparecer no mapa.
+/// Passa a aparecer no mapa.
+#[post("/admin/organizations/{id}/approve")]
 pub async fn approve(
     identity: AdminIdentity,
     path: web::Path<i32>,
@@ -201,7 +195,8 @@ pub async fn approve(
     .await
 }
 
-/// POST /admin/organizations/{id}/reject — sai do mapa, com motivo opcional.
+/// Sai do mapa, com motivo opcional.
+#[post("/admin/organizations/{id}/reject")]
 pub async fn reject(
     identity: AdminIdentity,
     path: web::Path<i32>,
@@ -265,7 +260,8 @@ async fn review(
     Ok(HttpResponse::Ok().json(view))
 }
 
-/// POST /organizations - Create a new organization
+/// Cadastro novo, aberto ao público. Entra pendente.
+#[post("/organizations")]
 pub async fn create(
     req: HttpRequest,
     payload: Multipart,
@@ -441,10 +437,11 @@ pub async fn create(
     Ok(HttpResponse::Created().json(view))
 }
 
-/// GET /organizations/{id_ou_slug} - Um cadastro, por id ou por slug
+/// Um cadastro, por id ou por slug.
 ///
 /// Aceita os dois porque o site passou a usar slug, mas links antigos com id
 /// continuam existindo por aí. Numérico é id; o resto é slug.
+#[get("/organizations/{id_or_slug}")]
 pub async fn show(
     path: web::Path<String>,
     pool: web::Data<DbPool>,
@@ -468,7 +465,8 @@ pub async fn show(
     Ok(HttpResponse::Ok().json(view))
 }
 
-/// GET /organizations - Get all organizations with pagination
+/// A listagem do mapa, paginada. Só aprovados.
+#[get("/organizations")]
 pub async fn index(
     query: web::Query<PaginationQuery>,
     pool: web::Data<DbPool>,

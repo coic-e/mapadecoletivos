@@ -2,7 +2,7 @@
 //!
 //! Quem está de fora sugere; quem decide é a moderação. Nada aqui altera uma
 //! organização sem passar por um admin — a rota pública só enfileira.
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{get, post, web, HttpRequest, HttpResponse};
 use serde::Deserialize;
 
 use crate::auth::AdminIdentity;
@@ -28,20 +28,21 @@ pub struct StatusQuery {
     pub status: Option<String>,
 }
 
-/// Só as rotas administrativas. A pública mora dentro do escopo
-/// `/organizations`, em domains::organizations::routes: no actix, o primeiro
-/// escopo que casa com o prefixo passa a ser dono da requisição, então um
-/// segundo escopo com o mesmo começo de caminho nunca seria consultado.
+/// Com o caminho no atributo de cada handler, a rota pública volta a morar
+/// aqui. Antes ela era registrada no módulo de organizações: os escopos
+/// disputavam o prefixo `/organizations`, e o primeiro que casasse passava a
+/// ser dono da requisição — então um segundo escopo com o mesmo começo de
+/// caminho nunca seria consultado. Sem escopo, não há disputa.
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/admin/edit-requests")
-            .route("", web::get().to(index))
-            .route("/{id}/apply", web::post().to(apply))
-            .route("/{id}/reject", web::post().to(reject)),
-    );
+    cfg.service(create)
+        .service(index)
+        .service(apply)
+        .service(reject);
 }
 
-/// POST /organizations/{id_ou_slug}/edit-requests
+/// Pedido de correção vindo de fora do painel. Entra na fila; não altera
+/// nada por conta própria.
+#[post("/organizations/{id_or_slug}/edit-requests")]
 pub async fn create(
     req: HttpRequest,
     path: web::Path<String>,
@@ -79,7 +80,8 @@ pub async fn create(
     Ok(HttpResponse::Created().json(EditRequestView::from(&request)))
 }
 
-/// GET /admin/edit-requests?status=pending
+/// A fila de pedidos.
+#[get("/admin/edit-requests")]
 pub async fn index(
     identity: AdminIdentity,
     query: web::Query<StatusQuery>,
@@ -124,7 +126,8 @@ fn parse_status(requested: Option<&str>) -> Result<Option<String>, ApiError> {
     Ok(Some(requested.to_string()))
 }
 
-/// POST /admin/edit-requests/{id}/apply
+/// Aplica o pedido no cadastro e o fecha.
+#[post("/admin/edit-requests/{id}/apply")]
 pub async fn apply(
     identity: AdminIdentity,
     path: web::Path<i32>,
@@ -147,7 +150,8 @@ pub async fn apply(
     Ok(HttpResponse::Ok().json(view))
 }
 
-/// POST /admin/edit-requests/{id}/reject
+/// Recusa o pedido. O cadastro fica como estava.
+#[post("/admin/edit-requests/{id}/reject")]
 pub async fn reject(
     identity: AdminIdentity,
     path: web::Path<i32>,

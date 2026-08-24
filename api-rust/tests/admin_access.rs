@@ -11,8 +11,8 @@ use actix_web::http::{header, StatusCode};
 use actix_web::test;
 use api_rust::app::{build_app, Limiters};
 use api_rust::auth::{create_token, hash_password, verify_password};
-use api_rust::bootstrap::{seed_first_admin, AdminSeed};
 use api_rust::config::AppConfig;
+use api_rust::domains::admins::actions::{seed_first, AdminSeed};
 use api_rust::domains::admins::repository::AdminRepository;
 use api_rust::errors::ApiError;
 use db_types::admin::NewAdmin;
@@ -97,7 +97,7 @@ async fn the_seed_creates_the_first_moderator_and_only_the_first() {
                 password: "uma-senha-bem-comprida".to_string(),
             };
 
-            seed_first_admin(conn, Some(semente())).expect("deveria criar");
+            seed_first(conn, Some(semente())).expect("deveria criar");
 
             let criado = AdminRepository::find_by_email(conn, "primeira@exemplo.com")
                 .unwrap()
@@ -111,7 +111,7 @@ async fn the_seed_creates_the_first_moderator_and_only_the_first() {
             // Segunda subida com a mesma variável no ambiente: não pode
             // reaplicar a senha. Se aplicasse, quem tivesse acesso ao painel
             // assumiria a conta editando uma variável e reiniciando o serviço.
-            seed_first_admin(
+            seed_first(
                 conn,
                 Some(AdminSeed {
                     name: "Sequestro".to_string(),
@@ -138,7 +138,7 @@ async fn a_short_seed_password_stops_the_boot() {
     with_database("a_short_seed_password_stops_the_boot", |conn| {
         clear(conn);
 
-        let erro = seed_first_admin(
+        let erro = seed_first(
             conn,
             Some(AdminSeed {
                 name: "Curta".to_string(),
@@ -149,6 +149,10 @@ async fn a_short_seed_password_stops_the_boot() {
         .expect_err("senha curta deveria derrubar a subida");
 
         assert!(erro.contains("12"), "a mensagem diz o mínimo: {erro}");
+        assert!(
+            erro.contains("ADMIN_PASSWORD"),
+            "a mensagem diz qual variável: {erro}"
+        );
         assert!(
             AdminRepository::find_by_email(conn, "curta@exemplo.com")
                 .unwrap()
@@ -164,7 +168,7 @@ async fn no_seed_and_no_moderators_is_not_an_error() {
     with_database("no_seed_and_no_moderators_is_not_an_error", |conn| {
         clear(conn);
 
-        assert!(seed_first_admin(conn, None).is_ok());
+        assert!(seed_first(conn, None).is_ok());
     });
 }
 
