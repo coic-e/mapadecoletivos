@@ -2,8 +2,12 @@
 //!
 //! Sugerir é aberto; aplicar e recusar são da moderação. O witness é o que
 //! separa as duas coisas na assinatura das ações, e não só na rota.
+use actix_web::{dev::Payload, FromRequest, HttpRequest};
+use futures_util::future::LocalBoxFuture;
+
 use crate::auth::AdminIdentity;
 use crate::domains::organizations::auth::{moderating, SeeEveryStatus};
+use crate::errors::ApiError;
 
 /// Prova de que quem está decidindo é moderador.
 ///
@@ -30,12 +34,25 @@ impl ReviewEditRequests {
     }
 }
 
-/// A única porta de entrada.
+/// A única porta de entrada. Pública pelo mesmo motivo de `moderating`: os
+/// testes fabricam a identidade.
 pub fn reviewing(identity: &AdminIdentity) -> ReviewEditRequests {
     ReviewEditRequests {
         admin_id: identity.id,
         organizations: moderating(identity),
         _private: (),
+    }
+}
+
+/// Ver `SeeEveryStatus`: a prova é o que o handler pede, e o 401 sai daqui.
+impl FromRequest for ReviewEditRequests {
+    type Error = ApiError;
+    type Future = LocalBoxFuture<'static, Result<Self, Self::Error>>;
+
+    fn from_request(req: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let identity = AdminIdentity::from_request(req, payload);
+
+        Box::pin(async move { Ok(reviewing(&identity.await?)) })
     }
 }
 

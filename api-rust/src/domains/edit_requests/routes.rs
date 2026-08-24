@@ -5,7 +5,7 @@
 use actix_web::{get, post, web, HttpRequest, HttpResponse};
 use serde::Deserialize;
 
-use crate::auth::AdminIdentity;
+use super::auth::ReviewEditRequests;
 use crate::config::AppConfig;
 use crate::db::DbPool;
 use crate::errors::ApiError;
@@ -13,7 +13,7 @@ use crate::rate_limit::{client_key, SubmissionRateLimiter};
 use api_types::{EditRequestView, OrganizationView};
 use db_types::edit_request::{EditRequestStatus, OrganizationChanges};
 
-use super::{actions, auth};
+use super::actions;
 
 #[derive(Debug, Deserialize)]
 pub struct CreateEditRequestPayload {
@@ -83,11 +83,10 @@ pub async fn create(
 /// A fila de pedidos.
 #[get("/admin/edit-requests")]
 pub async fn index(
-    identity: AdminIdentity,
+    w: ReviewEditRequests,
     query: web::Query<StatusQuery>,
     pool: web::Data<DbPool>,
 ) -> Result<HttpResponse, ApiError> {
-    let w = auth::reviewing(&identity);
     let status = parse_status(query.status.as_deref())?;
 
     let mut conn = pool
@@ -129,12 +128,11 @@ fn parse_status(requested: Option<&str>) -> Result<Option<String>, ApiError> {
 /// Aplica o pedido no cadastro e o fecha.
 #[post("/admin/edit-requests/{id}/apply")]
 pub async fn apply(
-    identity: AdminIdentity,
+    w: ReviewEditRequests,
     path: web::Path<i32>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, ApiError> {
-    let w = auth::reviewing(&identity);
     let request_id = path.into_inner();
 
     let mut conn = pool
@@ -153,11 +151,10 @@ pub async fn apply(
 /// Recusa o pedido. O cadastro fica como estava.
 #[post("/admin/edit-requests/{id}/reject")]
 pub async fn reject(
-    identity: AdminIdentity,
+    w: ReviewEditRequests,
     path: web::Path<i32>,
     pool: web::Data<DbPool>,
 ) -> Result<HttpResponse, ApiError> {
-    let w = auth::reviewing(&identity);
     let request_id = path.into_inner();
 
     let mut conn = pool

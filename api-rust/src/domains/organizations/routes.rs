@@ -4,7 +4,7 @@ use actix_web::{get, patch, post, web, HttpRequest, HttpResponse};
 use serde::Deserialize;
 use validator::Validate;
 
-use crate::auth::AdminIdentity;
+use super::auth::SeeEveryStatus;
 use crate::config::AppConfig;
 use crate::db::DbPool;
 use crate::errors::ApiError;
@@ -15,7 +15,7 @@ use api_types::OrganizationView;
 use db_types::edit_request::OrganizationChanges;
 use db_types::organization::{slugify, ModerationStatus, NewOrganization};
 
-use super::{actions, auth};
+use super::actions;
 
 /// Teto de itens por página. Sem ele, `?limit=100000000` faz a API carregar a
 /// tabela inteira e as imagens de todo mundo em memória — negação de serviço
@@ -71,7 +71,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 /// A fila de revisão.
 #[get("/admin/organizations")]
 pub async fn moderation_index(
-    identity: AdminIdentity,
+    w: SeeEveryStatus,
     query: web::Query<ModerationQuery>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
@@ -105,8 +105,6 @@ pub async fn moderation_index(
         .get()
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
 
-    let w = auth::moderating(&identity);
-
     let organizations_with_images = web::block(move || {
         actions::get_organizations_for_moderation(&mut conn, w, status, limit, offset)
     })
@@ -122,7 +120,7 @@ pub async fn moderation_index(
 /// Enxerga qualquer estado, não só aprovado.
 #[get("/admin/organizations/{id}")]
 pub async fn moderation_show(
-    identity: AdminIdentity,
+    w: SeeEveryStatus,
     path: web::Path<i32>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
@@ -132,8 +130,6 @@ pub async fn moderation_show(
     let mut conn = pool
         .get()
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
-
-    let w = auth::moderating(&identity);
 
     let (organization, images) =
         web::block(move || actions::get_organization_for_moderation(&mut conn, w, organization_id))
@@ -149,13 +145,12 @@ pub async fn moderation_show(
 /// não volta para a fila: quem editou aqui é a própria moderação.
 #[patch("/admin/organizations/{id}")]
 pub async fn update(
-    identity: AdminIdentity,
+    w: SeeEveryStatus,
     path: web::Path<i32>,
     payload: web::Json<OrganizationChanges>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
 ) -> Result<HttpResponse, ApiError> {
-    let w = auth::moderating(&identity);
     let organization_id = path.into_inner();
     let changes = payload.into_inner();
 
@@ -177,14 +172,14 @@ pub async fn update(
 /// Passa a aparecer no mapa.
 #[post("/admin/organizations/{id}/approve")]
 pub async fn approve(
-    identity: AdminIdentity,
+    w: SeeEveryStatus,
     path: web::Path<i32>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
     storage: web::Data<SharedStore>,
 ) -> Result<HttpResponse, ApiError> {
     review(
-        identity,
+        w,
         path,
         pool,
         config,
@@ -198,7 +193,7 @@ pub async fn approve(
 /// Sai do mapa, com motivo opcional.
 #[post("/admin/organizations/{id}/reject")]
 pub async fn reject(
-    identity: AdminIdentity,
+    w: SeeEveryStatus,
     path: web::Path<i32>,
     payload: Option<web::Json<RejectPayload>>,
     pool: web::Data<DbPool>,
@@ -211,7 +206,7 @@ pub async fn reject(
         .filter(|value| !value.is_empty());
 
     review(
-        identity,
+        w,
         path,
         pool,
         config,
@@ -223,7 +218,7 @@ pub async fn reject(
 }
 
 async fn review(
-    identity: AdminIdentity,
+    w: SeeEveryStatus,
     path: web::Path<i32>,
     pool: web::Data<DbPool>,
     config: web::Data<AppConfig>,
@@ -236,8 +231,6 @@ async fn review(
     let mut conn = pool
         .get()
         .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
-
-    let w = auth::moderating(&identity);
 
     let (organization, images, descartadas) = web::block(move || {
         actions::review_organization(&mut conn, w, organization_id, status, rejection_reason)

@@ -19,7 +19,11 @@
 //! montam o seu. Fechar isso exigiria esconder a construção da identidade
 //! também, e o que se ganharia é proteção contra um ato deliberado, que já
 //! apareceria na revisão de qualquer jeito.
+use actix_web::{dev::Payload, FromRequest, HttpRequest};
+use futures_util::future::LocalBoxFuture;
+
 use crate::auth::AdminIdentity;
+use crate::errors::ApiError;
 
 /// Prova de que quem está pedindo é moderador e pode ver qualquer estado.
 ///
@@ -41,10 +45,32 @@ impl SeeEveryStatus {
 
 /// A única porta de entrada. Recebe a identidade que o extractor já conferiu
 /// contra o banco.
+///
+/// Continua pública porque os testes montam a prova a partir de uma identidade
+/// fabricada, sem subir servidor.
 pub fn moderating(identity: &AdminIdentity) -> SeeEveryStatus {
     SeeEveryStatus {
         admin_id: identity.id,
         _private: (),
+    }
+}
+
+/// Pedir a prova direto no handler, em vez de pedir `AdminIdentity` e convertê-la
+/// na primeira linha do corpo.
+///
+/// A conversão manual não era insegura — sem ela o handler não teria o que
+/// passar ao repositório —, mas espalhava por sete rotas um passo que é sempre
+/// o mesmo, e deixava a assinatura do handler dizendo "preciso de um moderador"
+/// quando o que ela quer dizer é "preciso do direito de ver qualquer estado".
+/// Assim a decisão inteira, inclusive o 401, mora neste arquivo.
+impl FromRequest for SeeEveryStatus {
+    type Error = ApiError;
+    type Future = LocalBoxFuture<'static, Result<Self, Self::Error>>;
+
+    fn from_request(req: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let identity = AdminIdentity::from_request(req, payload);
+
+        Box::pin(async move { Ok(moderating(&identity.await?)) })
     }
 }
 
