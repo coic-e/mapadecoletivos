@@ -14,7 +14,11 @@ const envSchema = z.object({
   VITE_MAPBOX_ACCESS_TOKEN: z.string().min(1, "VITE_MAPBOX_ACCESS_TOKEN is required"),
 });
 
-const DEFAULT_SITE_URL = "http://localhost:5173";
+// O domínio de produção, e não localhost, porque este valor só alimenta
+// canonical, Open Graph, robots.txt e sitemap.xml. Um build que perdeu a
+// variável passa a anunciar o endereço certo em vez de mandar o Google indexar
+// URLs de localhost — e em desenvolvimento nada disso é lido por robô nenhum.
+const DEFAULT_SITE_URL = "https://mapaderave.com.br";
 
 /**
  * Content-Security-Policy do site.
@@ -209,10 +213,7 @@ export default defineConfig(({ mode }) => {
   }
 
   if (mode === "production" && !env.VITE_SITE_URL) {
-    console.warn(
-      "⚠️  VITE_SITE_URL nao definida: canonical, Open Graph e sitemap vao apontar para " +
-        DEFAULT_SITE_URL
-    );
+    console.warn(`⚠️  VITE_SITE_URL nao definida: usando ${DEFAULT_SITE_URL}`);
   }
 
   return {
